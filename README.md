@@ -5,13 +5,25 @@
   </picture>
 </p>
 
-# Leviathan: Open-source mobile security analysis framework
+# Leviathan: Mobile security analysis framework
 
 **Android & iOS** · **Docker Compose** · [**MIT License**](LICENSE)
 
 Static analysis, decompilation, and runtime instrumentation for Android and iOS applications through a web interface. Leviathan brings application metadata, source code, findings, and Frida sessions into one workspace.
 
 Android analysis uses AppShark and decompilation tools including JADX and Vineflower. iOS analysis provides Mach-O inspection, ARM disassembly, and per-function pseudocode. Frida supports runtime inspection on connected devices.
+
+## Documentation
+
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Environment configuration](#environment-variables)
+- [Features](#features)
+- [AppShark rule packaging](Services/Engine/Rules/README.md)
+- [Service configuration](docker-compose.yml)
+- [Development](#development)
+- [Built With](#built-with)
+- [License](#license)
 
 ## Quick Start
 
@@ -84,13 +96,13 @@ Service ports, worker concurrency, scan memory limits, and frontend API addresse
 
 ## Features
 
-- **Application workspace** — Upload APKs/IPAs, browse application metadata, and manage an analysis inventory.
-- **Queued analysis** — Configure Android scans, monitor task status, and inspect engine logs.
-- **Source inspection** — Browse decompiled code with search, bookmarks, and definition navigation.
-- **Findings review** — Filter results, inspect source/sink details, and suppress false positives.
-- **Frida integration** — Browse devices and applications, manage sessions, and inspect streamed output.
-- **Script editor and REPL** — Work with Frida scripts through the browser interface.
-- **MCP integration** — Expose stored scan information and source context to compatible triage clients.
+- **Application workspace:** Upload APKs/IPAs, browse application metadata, and manage an analysis inventory.
+- **Queued analysis:** Configure Android scans, monitor task status, and inspect engine logs.
+- **Source inspection:** Browse decompiled code with search, bookmarks, and definition navigation.
+- **Findings review:** Filter results, inspect source/sink details, and suppress false positives.
+- **Frida integration:** Browse devices and applications, manage sessions, and inspect streamed output.
+- **Script editor and REPL:** Work with Frida scripts through the browser interface.
+- **MCP integration:** Expose stored scan information and source context to compatible triage clients.
 
 ### iOS
 
@@ -112,16 +124,7 @@ Service ports, worker concurrency, scan memory limits, and frontend API addresse
 - Findings linked to source details, with filtering and false-positive suppression.
 - TruffleHog secret scanning of decompiled code.
 
-## Documentation
-
-- [Getting started](#quick-start)
-- [Usage](#usage)
-- [Environment configuration](#environment-variables)
-- [AppShark rule packaging](Services/Engine/Rules/README.md)
-- [Service configuration](docker-compose.yml)
-- [Development setup](#development)
-
-### Development
+## Development
 
 Start the stack with frontend hot reload:
 
@@ -139,7 +142,7 @@ The frontend remains available at [http://localhost:3000](http://localhost:3000)
 | `Services/AI` | MCP service for scan and source context |
 | `Services/Nginx` | Reverse-proxy configuration |
 
-### Built With
+## Built With
 
 Leviathan uses Vue, Vuetify, Flask, Celery, Redis, PostgreSQL, and Docker. Its analysis and instrumentation integrations include:
 
@@ -148,7 +151,6 @@ Leviathan uses Vue, Vuetify, Flask, Celery, Redis, PostgreSQL, and Docker. Its a
 - [Androguard](https://github.com/androguard/androguard), [LIEF](https://github.com/lief-project/LIEF), and [Strongarm](https://github.com/datatheorem/strongarm).
 - [Radare2](https://github.com/radareorg/radare2) and [r2ghidra](https://github.com/radareorg/r2ghidra).
 - [Frida](https://frida.re) and [TruffleHog](https://github.com/trufflesecurity/trufflehog).
-.
 
 ## License
 
