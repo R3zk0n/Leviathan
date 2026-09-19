@@ -4,13 +4,25 @@ Leviathan is a comprehensive mobile security analysis tool. It provides an autom
 
 This repository is the **release tree**. Taint analysis is powered by the public [cxxsheng/appshark](https://github.com/cxxsheng/appshark/) engine, cloned at image build time. Leviathan’s own rules live in `Services/Engine/Rules/` and are added deliberately — the folder starts empty.
 
-## Stack
+## Technologies Used
 
-- Frontend: Vue 3 + Vuetify + Vite (http://localhost:3000)
-- Backend: Flask + PostgreSQL + Celery + Redis (http://localhost:5001)
-- iOS twin: strongarm / LIEF (http://localhost:5003)
-- Engine: AppShark + JADX + Vineflower + TruffleHog
-- Optional: AI / MCP sidecar
+- **Vue.js**: A progressive JavaScript framework for building user interfaces.
+- **Vuetify**: A Vue UI Library with beautifully handcrafted Material Components.
+- **Python**: For backend processing and security analysis.
+- **Node.js**: For handling server-side logic and API endpoints.
+- **Appshark**: For taint and source tracking of vulnerabilities.
+- **PostgreSQL**: For robust and reliable data storage.
+- **Docker**: For simplified deployment and scalability.
+
+
+## Libraries Used
+- [Strongarm-iOS](https://github.com/datatheorem/strongarm/tree/release)
+- [Androguard](https://github.com/androguard/androguard)
+- [Appshark](https://github.com/bytedance/appshark)
+- [JADX](https://github.com/skylot/jadx)
+- [LIEF](Test)
+
+
 
 ## Quick start
 
@@ -42,28 +54,8 @@ Frontend hot-reload:
 docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build
 ```
 
-## Architectures
 
-Images build natively for the host CPU: `linux/amd64` and `linux/arm64` (Apple Silicon).
-
-`ios-analysis` is the exception. `strongarm-dataflow` has no Linux arm64 wheel, so that one service stays `linux/amd64` (QEMU/Rosetta on M-series). Frida cannot run under that emulation, which is why the native `backend` service owns Frida and the amd64 twin owns iOS analysis.
-
-Java tools (AppShark, JADX, Vineflower) and the UI are the same on both arches.
-
-## Ports
-
-This is a local lab tool. Redis, Postgres, and the engine bind to `127.0.0.1` so they are not on the LAN.
-
-| Service | URL |
-|---|---|
-| UI | http://localhost:3000 |
-| API | http://localhost:5001 |
-| iOS API | http://localhost:5003 |
-| Nginx (optional) | https://localhost:4433 |
-
-## Rules
-
-Put selected AppShark JSON rules in `Services/Engine/Rules/` and rebuild the engine image. See that folder’s README.
+.
 
 ## License
 
