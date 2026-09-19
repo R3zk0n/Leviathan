@@ -1,0 +1,585 @@
+/* FridaClicksContainer.css - Complete Styles */
+
+/* Overlay */
+.frida-clicks-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* Main Dialog Container */
+.frida-clicks-dialog {
+  --font-scale: 1;
+  background: #1a1d21;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: dialogEnter 0.3s ease-out;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Apply font scaling */
+.dialog-content {
+  font-size: calc(14px * var(--font-scale));
+}
+
+@keyframes dialogEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Disable transitions during drag/resize */
+.frida-clicks-dialog.dragging,
+.frida-clicks-dialog.resizing {
+  transition: none !important;
+}
+
+/* Visual feedback during drag */
+.frida-clicks-dialog.dragging {
+  opacity: 0.95;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6);
+}
+
+.frida-clicks-dialog.fullscreen {
+  border-radius: 0;
+  border: none;
+}
+
+/* Header */
+.dialog-header {
+  background: linear-gradient(135deg, #2a2d33 0%, #1f2226 100%);
+  padding: 0 20px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.3s ease;
+}
+
+.dialog-header:hover {
+  background: linear-gradient(135deg, #32353b 0%, #25282c 100%);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-icon {
+  color: #9c27b0;
+  font-size: 24px;
+}
+
+.header-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-btn {
+  opacity: 0.7;
+  transition: all 0.2s;
+}
+
+.header-btn:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.header-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.close-btn:hover {
+  background: rgba(244, 67, 54, 0.2);
+}
+
+/* Content */
+.dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  background: #13151a;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.dialog-content.minimized {
+  display: none;
+}
+
+.content-wrapper {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Platform Sections */
+.platform-section {
+  margin-bottom: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s ease;
+}
+
+.platform-section:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.platform-header {
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.platform-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.platform-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.platform-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-icon {
+  transition: transform 0.3s ease;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.section-icon.rotated {
+  transform: rotate(90deg);
+}
+
+.platform-icon-wrapper {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.platform-icon-wrapper.ios {
+  background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
+}
+
+.platform-icon-wrapper.android {
+  background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+}
+
+.platform-icon {
+  font-size: 24px;
+  color: white;
+}
+
+.platform-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.platform-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-chip {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.platform-content {
+  padding: 0 20px 20px 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Category Sections */
+.enhanced-category {
+  margin-bottom: 12px;
+}
+
+/* Category Section Styles */
+.category-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.category-section:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.category-header {
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.2s ease;
+}
+
+.category-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.category-icon {
+  color: rgba(255, 255, 255, 0.6);
+  transition: transform 0.3s ease;
+}
+
+.category-icon.rotated {
+  transform: rotate(90deg);
+}
+
+.feature-icon {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.category-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.category-content {
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Feature Cards */
+.feature-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.feature-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.feature-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.feature-description {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.feature-actions .v-btn {
+  text-transform: none;
+}
+
+/* Resize Handle with Animation */
+.resizer-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  opacity: 0.5;
+  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.1) 100%);
+  border-top-left-radius: 8px;
+  z-index: 10;
+}
+
+.resizer-handle:hover,
+.resizer-handle.hover {
+  width: 30px !important;
+  height: 30px !important;
+  opacity: 1 !important;
+  background: linear-gradient(135deg, transparent 0%, rgba(88, 166, 255, 0.3) 100%);
+}
+
+.frida-clicks-dialog.minimized .resizer-handle {
+  display: none;
+}
+
+.resize-grip {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.3) 50%);
+  border-radius: 0 0 12px 0;
+  transition: all 0.3s ease;
+}
+
+.resizer-handle:hover .resize-grip,
+.resizer-handle.hover .resize-grip {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, transparent 50%, rgba(88, 166, 255, 0.5) 50%);
+}
+
+/* Notifications */
+.notification-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.notification {
+  background: #2a2d33;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  animation: notificationSlideIn 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@keyframes notificationSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.notification-enter-active {
+  transition: all 0.3s ease-out;
+}
+
+.notification-leave-active {
+  transition: all 0.3s ease-in;
+}
+
+.notification-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.notification-icon {
+  font-size: 20px;
+}
+
+.notification-success .notification-icon {
+  color: #4CAF50;
+}
+
+.notification-error .notification-icon {
+  color: #f44336;
+}
+
+.notification-warning .notification-icon {
+  color: #ff9800;
+}
+
+.notification-info .notification-icon {
+  color: #2196F3;
+}
+
+.notification-message {
+  flex: 1;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.notification-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: currentColor;
+  transition: width 0.05s linear;
+  opacity: 0.3;
+}
+
+.notification-success .notification-progress {
+  background: #4CAF50;
+}
+
+.notification-error .notification-progress {
+  background: #f44336;
+}
+
+.notification-warning .notification-progress {
+  background: #ff9800;
+}
+
+.notification-info .notification-progress {
+  background: #2196F3;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scrollbar */
+.dialog-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dialog-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+.dialog-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.dialog-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Hardware acceleration for smooth animations */
+.dialog-header,
+.dialog-content,
+.resizer-handle {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Placeholder content for unimplemented features */
+.placeholder-content {
+  padding: 48px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.placeholder-text {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+/* Agent Status Bar Styles (if not in separate file) */
+.agent-status-bar {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.status-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Utility Classes */
+.ml-1 { margin-left: 4px; }
+.ml-2 { margin-left: 8px; }
+.mx-1 { margin-left: 4px; margin-right: 4px; }
+.mx-2 { margin-left: 8px; margin-right: 8px; }
+.mr-2 { margin-right: 8px; }
+
+/* V-Chip Overrides for Dark Theme */
+.v-chip {
+  font-size: 11px !important;
+}
+
+/* Ensure all text is visible in dark theme */
+.frida-clicks-dialog,
+.frida-clicks-dialog * {
+  color: rgba(255, 255, 255, 0.87);
+}

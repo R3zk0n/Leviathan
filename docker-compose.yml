@@ -1,0 +1,167 @@
+x-backend-env: &backend-env
+  FLASK_ENV: development
+  APP_SETTINGS: project.config.DevelopmentConfig
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  DATABASE_TEST_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  SECRET_KEY: ${SECRET_KEY}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  CORS_ORIGINS: ${CORS_ORIGINS}
+  INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/0
+
+x-backend-common: &backend-common
+  build:
+    context: ./Services/Backend
+    dockerfile: Dockerfile
+  volumes:
+    - ./Services/Backend:/usr/src/app
+    - uploads:/usr/src/app/uploads
+    - scans:/appshark_engine/appshark/Scans
+  depends_on:
+    - db
+    - redis
+  networks:
+    - api_bridge
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: always
+
+services:
+  backend:
+    <<: *backend-common
+    entrypoint: ["/usr/src/app/entrypoint.sh"]
+    ports:
+      - "127.0.0.1:5001:5000"
+    environment:
+      <<: *backend-env
+      ENABLE_FRIDA: "1"
+      ENABLE_IOS_ANALYSIS: "0"
+      SCAN_MEMORY_BUDGET_GB: "14"
+      SCAN_MAX_PARALLEL: "2"
+      CELERY_WORKER_CONCURRENCY: "4"
+      GUNICORN_WORKERS: "1"
+      GUNICORN_THREADS: "24"
+
+  ios-analysis:
+    <<: *backend-common
+    # amd64-only: strongarm-dataflow has no linux/arm64 wheel. Other services stay native.
+    platform: linux/amd64
+    entrypoint: ["/usr/src/app/entrypoint.ios.sh"]
+    ports:
+      - "127.0.0.1:5003:5000"
+    environment:
+      <<: *backend-env
+      ENABLE_FRIDA: "0"
+      ENABLE_IOS_ANALYSIS: "1"
+
+  frontend:
+    build:
+      context: ./Services/Frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VUE_APP_API_URL: http://127.0.0.1:5001
+        BACKEND_SERVICE_URL: http://127.0.0.1:5001
+        VITE_BACKEND_SERVICE_URL: http://127.0.0.1:5001
+        VITE_IOS_API_URL: http://127.0.0.1:5003
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - api_bridge
+
+  engine:
+    build:
+      context: ./Services/Engine
+      dockerfile: Dockerfile
+    volumes:
+      - uploads:/appshark_engine/appshark/uploads
+      - scans:/appshark_engine/appshark/Scans
+      - decompiled:/tmp/decompiled
+    ports:
+      - "127.0.0.1:5002:5000"
+    environment:
+      BACKEND_SERVICE_URL: http://backend:5000
+      JAVA_XMS: 1g
+      JAVA_XMX: 16g
+      JAVA_TOOL_OPTIONS: -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/appshark_engine/appshark/Scans/heap -XX:+ExitOnOutOfMemoryError
+      SCAN_TASK_SOFT_TIME_LIMIT: "14400"
+      SCAN_TASK_TIME_LIMIT: "15000"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      ENGINE_SCAN_CONCURRENCY: "2"
+      ENGINE_TOOLS_CONCURRENCY: "3"
+      ENGINE_CONTROL_CONCURRENCY: "4"
+    networks:
+      - api_bridge
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--bind", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - api_bridge
+
+  db:
+    build:
+      context: ./Services/Backend/project/db
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:5436:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - users_data:/var/lib/postgresql/data
+    networks:
+      - api_bridge
+    command: postgres -c max_connections=200 -c shared_buffers=256MB
+
+  ai:
+    build:
+      context: ./Services/AI
+      dockerfile: Dockerfile
+    volumes:
+      - uploads:/uploads:ro
+      - scans:/appshark_engine/appshark/Scans:ro
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      BACKEND_SERVICE_URL: http://backend:5000
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      UPLOADS_PATH: /uploads
+      SCANS_PATH: /appshark_engine/appshark/Scans
+    stdin_open: true
+    tty: true
+    depends_on:
+      - db
+    networks:
+      - api_bridge
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ./Services/Nginx
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "127.0.0.1:4433:443"
+    depends_on:
+      - backend
+      - ios-analysis
+      - frontend
+    networks:
+      - api_bridge
+
+networks:
+  api_bridge:
+    driver: bridge
+
+volumes:
+  users_data:
+  uploads:
+  scans:
+  decompiled:

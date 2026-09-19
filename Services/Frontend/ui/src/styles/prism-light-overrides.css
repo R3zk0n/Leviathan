@@ -1,0 +1,104 @@
+/* Prism (vue-code-highlight) ships with a dark theme (Okaidia) in this app.
+   These overrides ensure code blocks remain readable when rendered inside a
+   `.theme--light` container.
+*/
+
+.theme--light pre[class*="language-"]
+{
+  background: #f6f8fa !important;
+  border: 1px solid #d0d7de;
+  color: #24292f !important;
+  text-shadow: none !important;
+}
+
+.theme--light code[class*="language-"]
+{
+  background: transparent !important;
+  color: #24292f !important;
+  text-shadow: none !important;
+}
+
+/* Make sure long manifests remain readable */
+.theme--light pre[class*="language-"]
+{
+  line-height: 1.45;
+}
+
+/* Token palette tuned for light backgrounds (GitHub-ish) */
+.theme--light .token.comment,
+.theme--light .token.prolog,
+.theme--light .token.doctype,
+.theme--light .token.cdata
+{
+  color: #6e7781 !important;
+}
+
+.theme--light .token.punctuation
+{
+  color: #24292f !important;
+}
+
+.theme--light .token.tag,
+.theme--light .token.selector,
+.theme--light .token.keyword
+{
+  color: #116329 !important;
+}
+
+/* Method signatures / type names often use these tokens */
+.theme--light .token.class-name,
+.theme--light .token.function,
+.theme--light .token.method,
+.theme--light .token.atrule
+{
+  color: #8250df !important;
+}
+
+.theme--light .token.attr-name,
+.theme--light .token.property,
+.theme--light .token.boolean,
+.theme--light .token.number,
+.theme--light .token.constant,
+.theme--light .token.symbol
+{
+  color: #0550ae !important;
+}
+
+.theme--light .token.attr-value,
+.theme--light .token.string,
+.theme--light .token.char,
+.theme--light .token.builtin,
+.theme--light .token.inserted
+{
+  color: #0a3069 !important;
+}
+
+.theme--light .token.annotation,
+.theme--light .token.decorator,
+.theme--light .token.regex
+{
+  color: #0550ae !important;
+}
+
+.theme--light .token.operator,
+.theme--light .token.entity,
+.theme--light .token.url
+{
+  color: #24292f !important;
+  background: transparent !important;
+}
+
+.theme--light .token.namespace
+{
+  opacity: 1 !important;
+  color: #8250df !important;
+}
+
+/* Selection contrast */
+.theme--light pre[class*="language-"] ::selection,
+.theme--light pre[class*="language-"]::selection,
+.theme--light code[class*="language-"] ::selection,
+.theme--light code[class*="language-"]::selection
+{
+  background: rgba(9, 105, 218, 0.18) !important;
+}

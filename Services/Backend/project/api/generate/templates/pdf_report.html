@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leviathan Report for {{ app_name }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Material+Icons&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4338ca;
+            --primary-light: #818cf8;
+            --secondary: #10b981;
+            --error: #ef4444;
+            --success: #22c55e;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background-color: var(--background);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Header Styles */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 500;
+            margin: 0;
+            letter-spacing: 0.25px;
+        }
+
+        /* Card Styles */
+        .card {
+            background: var(--surface);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 1rem;
+            overflow: hidden;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 500;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--primary);
+        }
+
+        .card-content {
+            padding: 1rem;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 500;
+            color: var(--primary);
+            line-height: 1;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Table Styles */
+        .table-container {
+            margin: 1rem;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 1rem;
+            table-layout: fixed;
+        }
+
+        th {
+            background-color: #f8fafc;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 1rem;
+            vertical-align: top;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+
+        /* Column widths */
+        th:nth-child(1), td:nth-child(1) { width: 35%; }
+        th:nth-child(2), td:nth-child(2) { width: 15%; }
+        th:nth-child(3), td:nth-child(3) { width: 50%; }
+
+        /* Activity Name */
+        .activity-name {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.875rem;
+            word-break: break-all;
+            color: var(--text-primary);
+        }
+
+        /* Exported Status */
+        .exported-status {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 16px;
+            font-weight: 500;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .status-yes {
+            background-color: #dcfce7;
+            color: #15803d;
+        }
+
+        .status-no {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        /* Intent Filters */
+        .intent-filters {
+            display: block;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            color: var(--text-secondary);
+        }
+
+        .intent-filter-item {
+            display: block;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background-color: #f8fafc;
+            border-radius: 4px;
+            border-left: 3px solid var(--primary-light);
+        }
+
+        .filter-label {
+            color: var(--primary);
+            font-weight: 500;
+            margin-right: 0.25rem;
+        }
+
+        /* App Info Grid */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .info-item {
+            padding: 1rem;
+            background-color: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .info-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .info-value {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Manifest Risks */
+        .risks-container {
+            padding: 1rem;
+        }
+
+        .risk-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            border-radius: 16px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin: 0.25rem;
+        }
+
+        .risk-yes {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        .risk-no {
+            background-color: #dcfce7;
+            color: #15803d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Leviathan Report for {{ app_name }}</h1>
+    </div>
+
+    {% if app_info %}
+    <div class="card">
+        <div class="card-title">App Information</div>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-label">Package Name</div>
+                <div class="info-value">{{ app_info.package_name }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Version Name</div>
+                <div class="info-value">{{ app_info.version_name }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Version Code</div>
+                <div class="info-value">{{ app_info.version_code }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Min SDK Version</div>
+                <div class="info-value">{{ app_info.min_sdk }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Target SDK Version</div>
+                <div class="info-value">{{ app_info.target_sdk }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-title">Activity Summary</div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{{ total_activities }}</div>
+                <div class="stat-label">Total Activities</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ exported_activities }}</div>
+                <div class="stat-label">Exported</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ non_exported_activities }}</div>
+                <div class="stat-label">Non-Exported</div>
+            </div>
+        </div>
+    </div>
+
+    {% if manifest_risks %}
+    <div class="card">
+        <div class="card-title">Manifest Risks</div>
+        <div class="risks-container">
+            <div class="risk-tag risk-{{ 'yes' if manifest_risks.allowBackup else 'no' }}">
+                allowBackup: {{ 'Yes' if manifest_risks.allowBackup else 'No' }}
+            </div>
+            <div class="risk-tag risk-{{ 'yes' if manifest_risks.debuggable else 'no' }}">
+                debuggable: {{ 'Yes' if manifest_risks.debuggable else 'No' }}
+            </div>
+            <div class="risk-tag risk-{{ 'yes' if manifest_risks.usesCleartextTraffic else 'no' }}">
+                usesCleartextTraffic: {{ 'Yes' if manifest_risks.usesCleartextTraffic else 'No' }}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-title">Detailed Activities</div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Activity Name</th>
+                        <th>Exported</th>
+                        <th>Intent Filters</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for activity in activities %}
+                    <tr>
+                        <td>
+                            <span class="activity-name">{{ activity.name }}</span>
+                        </td>
+                        <td>
+                            <span class="exported-status status-{{ 'yes' if activity.exported else 'no' }}">
+                                {{ 'Yes' if activity.exported else 'No' }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="intent-filters">
+                                {% for filter in activity.intent_filters.split('\n') %}
+                                    {% if filter != "No intent filters" %}
+                                    <div class="intent-filter-item">
+                                        {{ filter | safe }}
+                                    </div>
+                                    {% else %}
+                                    {{ filter }}
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

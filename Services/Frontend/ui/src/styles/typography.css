@@ -1,0 +1,53 @@
+/**
+ * src/styles/typography.css
+ *
+ * Global text-rendering tuning for crisp UI type, especially on OLED / HiDPI
+ * dark displays. Imported once in main.js so it applies app-wide.
+ *
+ * Why each rule:
+ *  - font-smoothing → grayscale: WebKit/Blink default to *subpixel* antialiasing,
+ *    which renders bold and throws faint colored fringes ("halation") on letter
+ *    edges over dark backgrounds. Grayscale AA is thinner and fringe-free — the
+ *    single biggest win for text on a black OLED panel.
+ *  - text-rendering: optimizeLegibility → turns on kerning + common ligatures for
+ *    tidier spacing at UI sizes.
+ *  - System font stack: the OS UI font (San Francisco / Segoe UI) is hinted for
+ *    the panel it ships on, so it out-sharpens a downloaded webfont at no load
+ *    cost. Monospace stack mirrors this for the code/Frida/REPL surfaces.
+ *
+ * To revert: remove the import in main.js. To keep Roboto but still get the
+ * smoothing win, delete only the font-family blocks below.
+ */
+
+:root {
+  /* Single source of truth for every code / hex / terminal surface. Well-hinted
+     modern mono fonts first, classic fallbacks last. Reference as var(--code-font). */
+  --code-font: "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
+    "Menlo", "Monaco", "Consolas", "Courier New", monospace;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Native-crisp UI font. Vuetify sets Roboto on many components via its own
+   selectors, so we apply the stack broadly and let components opt into mono. */
+html,
+body,
+.v-application,
+.v-application [class*="text-"] {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Consistent, well-hinted monospace for all the code / hex / REPL surfaces. */
+code,
+kbd,
+pre,
+samp,
+.v-code,
+.monospace {
+  font-family: var(--code-font);
+}

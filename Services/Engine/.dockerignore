@@ -1,0 +1,7 @@
+**/.git
+**/.gradle
+**/__pycache__
+**/*.pyc
+**/.idea
+**/*.backup
+**/*.bak

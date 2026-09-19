@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "frida-java-bridge": "^7.0.8",
+    "frida-objc-bridge": "^8.0.5"
+  }
+}

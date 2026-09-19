@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+uploads
+*.bak
+.git
+.idea
+node_modules

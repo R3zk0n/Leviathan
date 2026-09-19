@@ -1,0 +1,25 @@
+# Constraints file to keep base packaging tooling stable.
+#
+# Why:
+# - Some third-party deps (e.g. strongarm-ios via capstone python bindings) still import `pkg_resources`.
+# - Newer setuptools releases can ship without `pkg_resources`, causing runtime crashes.
+#
+# Approach:
+# - Constrain setuptools to a range known to include pkg_resources.
+# - Keep it as a constraints file so it caps transitive upgrades without
+#   forcing setuptools as a direct dependency everywhere.
+#
+# If/when upstream deps stop importing pkg_resources, you can relax/remove this.
+#
+# NOTE: jsonschema/referencing were previously pinned to 4.17.3/0.28.4 with a
+# claim that referencing>=0.29 needs Python 3.13. That is stale — verified that
+# jsonschema 4.26 + referencing 0.37 install and import fine on Python 3.11
+# (modern typing_extensions supplies the TypeVar default). The old pin capped
+# jsonschema below 4.18, which broke flask-restx 1.3.2's payload validation
+# (`validate=True`) with "Validator.__init__() got an unexpected keyword
+# argument 'registry'". flask-restx is the only consumer of jsonschema, so the
+# pins are removed and pip resolves a current, compatible version.
+
+setuptools<82
+alembic>=1.13.0,<2.0
+dataset>=1.6.0,<2.0

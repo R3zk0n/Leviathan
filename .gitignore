@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Runtime / build
+/uploads/
+Services/Backend/uploads/
+node_modules/
+/dist
+Services/Frontend/ui/dist
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# TLS material generated locally
+Services/Nginx/ssl/*.key
+Services/Nginx/ssl/*.crt
+Services/Nginx/ssl/*.pem
+!Services/Nginx/ssl/directions.txt
+
+# Local-only research (not product)
+/scripts/
+/research/
+/unit-tests/

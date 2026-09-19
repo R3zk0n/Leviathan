@@ -1,0 +1,8 @@
+detectors:
+  - name: Google API Key
+    keywords:
+      - google
+      - api
+      - googleapi
+    regex:
+      googleApiKey: '\bAIza[0-9A-Za-z\-_]{35}\b'

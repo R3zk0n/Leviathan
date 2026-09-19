@@ -1,0 +1,16 @@
+services:
+  frontend:
+    build:
+      dockerfile: Dockerfile
+    command: ["yarn", "dev", "--host", "--port", "3000"]
+    volumes:
+      - ./Services/Frontend/ui:/app
+      - /app/node_modules
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      NODE_ENV: development
+      VUE_APP_API_URL: http://127.0.0.1:5001
+      VITE_BACKEND_SERVICE_URL: http://127.0.0.1:5001
+      VITE_IOS_API_URL: http://127.0.0.1:5003
