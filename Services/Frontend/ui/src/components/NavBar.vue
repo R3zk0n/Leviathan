@@ -8,7 +8,7 @@
         aria-label="Leviathan home"
       >
         <LeviathanIcon class="brand-icon" />
-        <span class="brand-text">Leviathan</span>
+        <span class="brand-wordmark">Leviathan</span>
       </router-link>
       <v-spacer></v-spacer>
       <v-app-bar-nav-icon @click.stop="drawer = !drawer" v-if="isAuthenticated"></v-app-bar-nav-icon>
@@ -245,11 +245,17 @@ export default {
   margin-right: 16px;
 }
 
+/* One knob: --brand-size is the icon height. Gap and wordmark follow the
+   proportions of logo.svg (icon 100 : gap 20 : wordmark cap height ~30).
+   Keep it a multiple of 20px: the icon is drawn on a 20-row grid, so at 40px every
+   stroke and pixel is exactly 2px and stays sharp at 100%, 150% and 200% scaling.
+   In between (e.g. 32px) the edges fall between pixels and the icon turns grey and soft. */
 .brand-link {
+  --brand-size: 40px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-left: 8px;
+  gap: calc(var(--brand-size) * 0.2);
+  margin-left: 12px;
   color: #111;
   text-decoration: none;
 }
@@ -259,18 +265,33 @@ export default {
 }
 
 .brand-icon {
-  height: 32px;
-  width: 32px;
+  height: var(--brand-size);
+  width: auto;
   display: block;
   flex: none;
 }
 
-.brand-text {
-  font-size: 18px;
-  font-weight: 300;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
+/* Live text in the app's own UI font (semibold), so the wordmark is rendered by the
+   same text engine as every other label. logo.svg at the repo root uses Roboto Medium
+   outlines, the closest openly licensed match, because GitHub cannot use system fonts. */
+.brand-wordmark {
+  flex: none;
+  font-family: var(--ui-font);
+  font-size: calc(var(--brand-size) * 0.425); /* 17px: a ~12px cap height, 30% of the icon */
+  font-weight: 600;
+  letter-spacing: 0.16em;
   line-height: 1;
+  text-transform: uppercase;
   white-space: nowrap;
+  /* Centre on the capitals rather than the line box (which sits ~1px low in Segoe UI).
+     Ignored where unsupported; the fallback is that 1px. */
+  text-box: trim-both cap alphabetic;
+}
+
+/* Narrow screens: the icon alone, so the Login / Register buttons still fit. */
+@media (max-width: 480px) {
+  .brand-wordmark {
+    display: none;
+  }
 }
 </style>

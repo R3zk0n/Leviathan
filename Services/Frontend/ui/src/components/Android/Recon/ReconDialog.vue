@@ -146,18 +146,7 @@
                     {{ scanningSecrets ? 'Scanning for Secrets...' : 'Scan for Secrets' }}
                   </v-btn>
 
-                  <!-- Debug Button -->
-                  <v-btn
-                      color="info"
-                      variant="outlined"
-                      @click="testScan"
-                      :disabled="scanningSecrets"
-                      prepend-icon="mdi-test-tube"
-                      class="ml-2"
-                    >
-                      Test TruffleHog
-                    </v-btn>
-                  </div>
+                </div>
 
                 <!-- Scan Progress -->
                 <v-alert
@@ -380,9 +369,8 @@
 </template>
 
 <script>
-import { mapState, mapGetters } from 'vuex';
+import { mapState } from 'vuex';
 import axios from 'axios';
-import { engineApi } from '@/services';
 
 export default {
   name: 'ReconDialog',
@@ -414,7 +402,6 @@ export default {
 
   computed: {
     ...mapState(['isDark']),
-    ...mapGetters(['decompilerEngine', 'decompilerResources']),
     uniqueSchemes() {
       if (!this.reconData?.androidInfo?.schemes) return [];
 
@@ -887,58 +874,6 @@ async saveSecretResults() {
         console.error('Error debugging scan chain:', error);
         this.$emit('show-snackbar', {
           text: 'Error debugging scan',
-          color: 'error'
-        });
-      }
-    },
-
-    async testScan() {
-      if (!this.filename) return;
-
-      this.$emit('show-snackbar', {
-        text: 'Running TruffleHog scan test directly...',
-        color: 'info'
-      });
-
-      try {
-        // First, make sure the file is decompiled (using the preferred engine)
-        await engineApi.decompile(this.filename, { engine: this.decompilerEngine, resources: this.decompilerResources });
-
-        // Get the decompiled path and run TruffleHog directly (simulating what the task would do)
-        const decompilePath = `/tmp/decompiled/${this.filename}`;
-
-        // Simulate a finding for testing purposes
-        const testFinding = {
-          type: "Test Finding",
-          description: "This is a test finding to verify TruffleHog integration",
-          value: "https://username:password@example.com",
-          raw_value: "https://username:password@example.com",
-          redacted_value: "https://username:********@example.com",
-          file: "test_file.txt",
-          line: 42,
-          source_name: "TruffleHog Test",
-          source_type: "Test",
-          detector_type: "URI",
-          detector_name: "TruffleHog Test Detector",
-          decoder_name: "PLAIN",
-          verified: true,
-          verification_error: null,
-          verification_cached: false
-        };
-
-        // Process the test finding
-        this.handleScanResults({
-          findings: [testFinding]
-        });
-
-        this.$emit('show-snackbar', {
-          text: 'TruffleHog test completed successfully with test data',
-          color: 'success'
-        });
-      } catch (error) {
-        console.error('Error in test scan:', error);
-        this.$emit('show-snackbar', {
-          text: 'Error in test scan: ' + (error.response?.data?.message || error.message),
           color: 'error'
         });
       }

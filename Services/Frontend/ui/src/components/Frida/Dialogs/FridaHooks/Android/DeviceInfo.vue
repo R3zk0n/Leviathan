@@ -502,7 +502,7 @@ function formatFingerprint(fingerprint) {
   font-size: 18px;
   font-weight: 700;
   color: #ffffff;
-  font-family: 'Inter', 'SF Pro Display', sans-serif;
+  font-family: var(--ui-font);
   word-break: break-word;
 }
 

@@ -1,24 +1,5 @@
 """Celery application for the engine container.
 
-The engine used to be driven by the backend over a mounted /var/run/docker.sock
-(``docker exec`` against a hardcoded container name). That made the backend
-root-equivalent on the host while it ingested untrusted APKs. This worker
-replaces that channel: the backend dispatches named tasks over Redis and never
-touches the Docker API.
-
-Deliberately standalone — no Flask, no SQLAlchemy, no backend imports. The
-contract between backend and engine is a task *name* plus a JSON payload
-(``send_task``), so neither side imports the other's code.
-
-Queue topology mirrors what the tools actually contend for:
-
-    engine.scan     concurrency 1   the 12 GB AppShark JVM; must serialise
-    engine.tools    concurrency 3   jadx / trufflehog / dex2jar; run alongside a scan
-    engine.control  concurrency 1   pkill, config + rule reads; must never queue
-                                    behind the scan it may be trying to cancel
-
-Keeping control on its own queue is load-bearing: a cancel that waits for the
-scan it cancels is useless.
 """
 
 import os

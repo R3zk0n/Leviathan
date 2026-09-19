@@ -299,25 +299,18 @@
       style="background-color: transparent !important;"
     >
       <v-card class="vuln-details-card" style="opacity: 1 !important;">
-        <v-toolbar dark color="primary">
+        <v-toolbar class="vuln-details-toolbar" dark color="primary">
           <v-btn icon dark @click="vulnerabilityDetailsDialog = false">
             <v-icon>mdi-close</v-icon>
           </v-btn>
           <v-toolbar-title>Vulnerability Details</v-toolbar-title>
           <v-spacer></v-spacer>
         </v-toolbar>
-        <v-card-text class="vuln-details-content" style="opacity: 1 !important;">
-          <v-container fluid>
-            <v-row>
-              <v-col cols="12">
-                <SafeReportHtml
-                  :content="vulnerabilityDetailsContent"
-                  class="vulnerability-details-content"
-                  :style="{ fontSize: contentFontSize }"
-                />
-              </v-col>
-            </v-row>
-          </v-container>
+        <v-card-text class="vuln-details-content pa-0" style="opacity: 1 !important;">
+          <SafeReportHtml
+            :content="vulnerabilityDetailsContent"
+            class="vulnerability-details-content"
+          />
         </v-card-text>
       </v-card>
     </v-dialog>
@@ -391,7 +384,6 @@ const openIssuePanelsByCategory = ref({});
 // Dialog controls
 const vulnerabilityDetailsDialog = ref(false);
 const vulnerabilityDetailsContent = ref('');
-const contentFontSize = ref('14px');
 const splitViewDialog = ref(false);
 const splitViewVulnerabilityDetailsHtml = ref('');
 const generatePDFDialog = ref(false);
@@ -1099,6 +1091,38 @@ onMounted(async () => {
 
 .theme--light .text-center.my-4 {
   background-color: rgba(245, 245, 245, 0.7);
+}
+
+/* Keep the toolbar visible and give the report all remaining dialog space. */
+.v-card.vuln-details-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.vuln-details-toolbar {
+  flex: 0 0 auto;
+}
+
+.vuln-details-content {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vuln-details-content .vulnerability-details-content {
+  display: block;
+  flex: 1 1 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: white;
 }
 
 /* Vulnerability details content */

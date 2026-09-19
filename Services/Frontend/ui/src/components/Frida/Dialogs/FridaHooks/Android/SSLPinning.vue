@@ -1425,7 +1425,7 @@ watch(() => parsedData.value, (newData) => {
   font-size: 20px;
   font-weight: 700;
   color: #ffffff;
-  font-family: 'Inter', 'SF Pro Display', sans-serif;
+  font-family: var(--ui-font);
 }
 
 .stat-label {

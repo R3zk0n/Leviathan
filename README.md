@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
-    <img src="logo.svg" alt="Leviathan" width="480">
+    <img src="logo.svg" alt="Leviathan" width="380">
   </picture>
 </p>
 

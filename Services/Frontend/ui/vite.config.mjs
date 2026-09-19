@@ -2,7 +2,9 @@
 import Components from 'unplugin-vue-components/vite'
 import Vue from '@vitejs/plugin-vue'
 import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
-import ViteFonts from 'unplugin-fonts/vite'
+// unplugin-fonts (Google Fonts Roboto) removed: the UI uses the system font stack from
+// src/styles/typography.css, so the webfont was requested from Google on every page
+// load but only ever rendered inside teleported dialogs. No third-party font requests.
 // unplugin-vue-router removed: conflicts with manual router in src/router/index.js
 // import VueRouter from 'unplugin-vue-router/vite'
 
@@ -24,14 +26,6 @@ export default defineConfig({
       },
     }),
     Components(),
-    ViteFonts({
-      google: {
-        families: [{
-          name: 'Roboto',
-          styles: 'wght@100;300;400;500;700;900',
-        }],
-      },
-    }),
   ],
   define: {
     'process.env': {},

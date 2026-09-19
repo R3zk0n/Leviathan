@@ -1,8 +1,5 @@
 """Shared imports, constants, and the audit namespace.
 
-Split out from the former monolithic audit.py so the parsing helpers
-(parsing.py) and the route endpoints (endpoints.py) import one canonical
-surface instead of duplicating a long import header.
 """
 import os
 import json

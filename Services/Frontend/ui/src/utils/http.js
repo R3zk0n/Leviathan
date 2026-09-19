@@ -1,48 +1,13 @@
-// src/utils/http.js
-//
-// Centralized axios HTTP client for the whole app.
-//
-// Why this exists:
-//  - Previously the Authorization header was only set inside the `login`/`refresh`
-//    Vuex actions via `axios.defaults.headers.common.Authorization = ...`. That
-//    in-memory default was lost on every full-page reload (incl. Vite dep-optimize
-//    reloads), so the very first protected request after a reload went out
-//    UN-authenticated, the backend returned 401, and pages rendered as if the
-//    user "got bounced out" even though localStorage still had a valid token.
-//
-// What this gives us:
-//  - A request interceptor that ALWAYS reads the latest access_token from
-//    localStorage and attaches it before every request.
-//  - A response interceptor that, on 401, transparently calls /auth/refresh
-//    once and replays the original request. If that fails, we clear auth and
-//    push the user to /login (with a redirect query so they bounce back to
-//    where they were going, not back to /).
-//  - A single configured baseURL so individual components don't have to
-//    keep concatenating `${import.meta.env.VITE_APP_API_URL}` everywhere.
-//
-// Usage:
-//   import http from '@/utils/http'
-//   const { data } = await http.get('/engine/settings')
-//
-// Existing call sites that use plain `axios` will keep working because we also
-// register the interceptors on the global axios instance via `installHttp()`.
+
 
 import axios from 'axios'
 
-// `VITE_APP_API_URL` is injected by vite.config.mjs at build time. We fall back
-// to '' so when not set we use relative paths (good for nginx-proxied prod).
 const BASE_URL = import.meta.env.VITE_APP_API_URL || ''
 
-// The /ios and /disas routes are served by a separate `ios-analysis` container
-// (amd64/Rosetta) so the strongarm-dataflow x86_64 wheel is available, while the
-// main backend runs native arm64 with frida. If VITE_IOS_API_URL is set we
-// rewrite those requests to that origin; otherwise they stay on BASE_URL (the
-// single-image x86_64 case, or nginx-proxied prod where location blocks route it).
+
 const IOS_API_URL = import.meta.env.VITE_IOS_API_URL || ''
 const IOS_PATH_RE = /^\/(ios|disas)(\/|$)/
 
-// Given a request URL (absolute or path), return the ios origin override if the
-// path targets an ios-analysis route, else null (leave the request untouched).
 function iosOriginFor (url = '') {
   if (!IOS_API_URL) return null
   // Normalise: axios may hand us a full URL (raw-axios call sites) or a path.

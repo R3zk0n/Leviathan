@@ -15,11 +15,21 @@
  *    the panel it ships on, so it out-sharpens a downloaded webfont at no load
  *    cost. Monospace stack mirrors this for the code/Frida/REPL surfaces.
  *
- * To revert: remove the import in main.js. To keep Roboto but still get the
- * smoothing win, delete only the font-family blocks below.
+ * The system stack is the app's only UI font: no webfont is loaded (the Roboto
+ * request to Google Fonts was removed from vite.config.mjs). The LEVIATHAN wordmark
+ * is artwork (outlines in LeviathanWordmark.vue), not live text, so it looks the
+ * same on every OS regardless of which system font is in use.
+ *
+ * To revert: remove the import in main.js.
  */
 
 :root {
+  /* Single source of truth for UI text. Reference as var(--ui-font) instead of
+     naming fonts in components: a named font that is not installed (e.g. 'Inter'
+     on Windows) silently falls through to Arial. */
+  --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    "Helvetica Neue", Arial, sans-serif;
+
   /* Single source of truth for every code / hex / terminal surface. Well-hinted
      modern mono fonts first, classic fallbacks last. Reference as var(--code-font). */
   --code-font: "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
@@ -32,14 +42,18 @@ html {
   text-rendering: optimizeLegibility;
 }
 
-/* Native-crisp UI font. Vuetify sets Roboto on many components via its own
-   selectors, so we apply the stack broadly and let components opt into mono. */
+/* Native-crisp UI font. Vuetify hard-codes Roboto on its typography classes
+   (.text-h6, .text-caption, ...), so the stack is applied to those as well.
+   Dialogs, menus, tooltips and snackbars are teleported to .v-overlay-container on
+   <body>, OUTSIDE .v-application, so they need their own selectors: without them a
+   .text-h6 inside a dialog renders in Roboto while the page behind it is Segoe UI. */
 html,
 body,
 .v-application,
-.v-application [class*="text-"] {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
-    "Helvetica Neue", Arial, sans-serif;
+.v-application [class*="text-"],
+.v-overlay-container,
+.v-overlay-container [class*="text-"] {
+  font-family: var(--ui-font);
 }
 
 /* Consistent, well-hinted monospace for all the code / hex / REPL surfaces. */

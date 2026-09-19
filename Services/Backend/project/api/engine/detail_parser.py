@@ -47,7 +47,6 @@ Return shape
 
 import re
 import html as html_module
-from project.report_html import sanitize_report_html
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +579,11 @@ def parse_appshark_detail(html: str) -> dict:
             _attach_java_source(blocks, java_text)
 
     return {
-        'content':   sanitize_report_html(html),
+        # The AppShark detail page exactly as the engine wrote it: its own <style> block and
+        # class attributes carry the Source/Sink highlighting, so it must not be rebuilt or
+        # stripped. It is only ever displayed inside the sandboxed iframe of
+        # SafeReportHtml.vue (scripts off, no network), never through v-html.
+        'content':   html,
         'callStack': call_stack,
         'blocks':    blocks,
     }

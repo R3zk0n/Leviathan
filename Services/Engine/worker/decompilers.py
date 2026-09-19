@@ -1,17 +1,4 @@
 """APK decompiler backends, running inside the engine container.
-
-Ported from the backend's project/api/engine/decompilers.py, which drove these
-tools remotely by building shell strings and shipping them over ``docker exec``.
-Here the tools run locally, so every invocation is an argv list with
-``shell=False`` and every existence check is a plain stat — no quoting, no shell.
-
-Both backends MUST produce the identical on-disk layout::
-
-    /tmp/decompiled/<file>/sources/<pkg>/*.java
-
-because the backend's resolve_decompiled_java_path, the secret scanner, and
-every frontend Java fetch assume that ``sources/`` tree. JADX writes it
-natively; Vineflower is normalised into it here.
 """
 
 import hashlib

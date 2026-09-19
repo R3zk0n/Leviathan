@@ -1,17 +1,4 @@
-"""Decompiled-source class -> file index, computed inside the engine container.
-
-JADX and Vineflower lay out ``sources/`` differently (deobfuscated names,
-dex2jar mangling, inner-class placement, .java vs .kt for the same Kotlin
-class), so resolving a class to its file by basename is unreliable. This reads
-what each source file *declares* (package + top-level type names) and returns
-FQCN -> rel_path rows for the backend to store.
-
-Previously the backend shipped this parser into the container as a text blob
-(write_file to /tmp/_leviathan_class_index.py) and ran it with
-``python3 <script>`` over docker exec — effectively remote code execution as a
-feature. It is now ordinary code in the worker image.
-
-Kept dependency-free and 3.8-compatible, as the original script was.
+"""Decompiled-source class
 """
 
 import bisect

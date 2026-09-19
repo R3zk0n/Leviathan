@@ -963,7 +963,7 @@ export default defineComponent({
       jsonDialogImports: false,
       infoDialog: false,
       classesDialog: false,
-      objcClasses: '',
+      objcClasses: [],
       swiftClasses: [],
       decompiledClassesContent: '',
       exportsDialog: false,

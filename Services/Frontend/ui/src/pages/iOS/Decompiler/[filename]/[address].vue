@@ -437,7 +437,7 @@
                       <v-icon start size="14">mdi-format-size</v-icon>
                       Font: {{ fontSize }}px
                     </v-chip>
-                    <v-btn-group size="small" variant="outlined" class="font-size-controls">
+                    <v-btn-group size="small" variant="outlined" density="comfortable" class="font-size-controls">
                       <v-btn
                         @click="decreaseFontSize"
                         :disabled="fontSize <= 10"

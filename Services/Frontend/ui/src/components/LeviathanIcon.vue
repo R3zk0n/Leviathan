@@ -1,33 +1,23 @@
 <template>
+  <!-- Drawn on a 5-unit grid (21 x 20 cells) with a single stroke weight. Render it at a
+       height that is a multiple of 20px (40px = 2px cells) and every edge lands on a whole
+       pixel, including at 150% and 200% display scaling; other sizes work but look softer. -->
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 100 100"
-    role="img"
+    viewBox="0 0 105 100"
     aria-hidden="true"
+    focusable="false"
   >
-    <g fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round">
-      <path d="M8 30V8h22M70 8h22v22M8 70v22h22M70 92h22V70" stroke-width="5" />
-      <path d="M60 84H36a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6h28a6 6 0 0 1 6 6v8M60 84h4a6 6 0 0 0 6-6v-4" />
-      <path d="M43 23h14" stroke-width="3" stroke-linecap="round" />
+    <g fill="none" stroke="currentColor" stroke-width="5">
+      <path d="M2.5 25V2.5H25M80 2.5h22.5V25M2.5 75v22.5H25M80 97.5h22.5V75" />
+      <path d="M77.5 45V18.5A6 6 0 0 0 71.5 12.5H33.5A6 6 0 0 0 27.5 18.5V81.5A6 6 0 0 0 33.5 87.5H71.5A6 6 0 0 0 77.5 81.5V80" />
+      <path d="M47.5 22.5h10" stroke-linecap="round" />
     </g>
-    <g fill="currentColor">
-      <rect x="66" y="30" width="6" height="6" />
-      <rect x="72" y="36" width="6" height="6" />
-      <rect x="60" y="40" width="6" height="6" />
-      <rect x="54" y="46" width="4" height="4" />
-      <rect x="76" y="46" width="5" height="5" />
-      <rect x="63" y="48" width="5" height="5" />
-      <rect x="70" y="52" width="6" height="6" />
-      <rect x="82" y="54" width="4" height="4" />
-      <rect x="58" y="56" width="4" height="4" />
-      <rect x="64" y="60" width="6" height="6" />
-      <rect x="76" y="62" width="4" height="4" />
-      <rect x="68" y="67" width="5" height="5" />
-      <rect x="60" y="70" width="4" height="4" />
-      <rect x="74" y="72" width="4" height="4" />
-      <rect x="65" y="75" width="5" height="5" />
-      <rect x="70" y="80" width="4" height="4" />
-    </g>
+    <!-- One path, so abutting pixels share a fill and show no seams. -->
+    <path
+      fill="currentColor"
+      d="M65 30h5v5h-5zM65 35h5v5h-5zM70 35h5v5h-5zM60 40h5v5h-5zM70 40h5v5h-5zM80 40h5v5h-5zM60 50h5v5h-5zM65 50h5v5h-5zM70 50h5v5h-5zM55 55h5v5h-5zM60 55h5v5h-5zM60 60h5v5h-5zM65 60h5v5h-5zM70 60h5v5h-5zM60 65h5v5h-5zM70 65h5v5h-5zM55 70h5v5h-5zM65 70h5v5h-5zM70 70h5v5h-5zM65 75h5v5h-5zM70 75h5v5h-5zM75 30h5v5h-5zM75 35h5v5h-5zM75 40h5v5h-5zM85 50h5v5h-5zM75 55h5v5h-5zM45 60h5v5h-5zM80 65h5v5h-5zM85 75h5v5h-5zM62.5 45h2.5v5h-2.5zM70 80h5.5v5h-5.5z"
+    />
   </svg>
 </template>
 
