@@ -4,6 +4,7 @@ from project.api.engine._shared import (
     json, request, jsonify, Resource, logger, engine_namespace, engine_service, decompile_apk_task,
 )
 from project.api.engine.decompilers import DECOMPILERS, DEFAULT_DECOMPILER
+from project.api.engine.safety import validate_apk_name
 
 
 @engine_namespace.route('/decompiled/<string:file_name>/batch-status')
@@ -55,6 +56,10 @@ class EngineDecompiled(Resource):
 @engine_namespace.route('/decompile/<string:file_name>')
 class EngineDecompile(Resource):
     def get(self, file_name):
+        try:
+            validate_apk_name(file_name)
+        except ValueError:
+            return {"message": "Expected an uploaded APK basename"}, 400
         engine = (request.args.get('engine', DEFAULT_DECOMPILER) or DEFAULT_DECOMPILER).strip().lower()
         if engine not in DECOMPILERS:
             return {"message": f"Unknown engine '{engine}'. Valid: {sorted(DECOMPILERS)}"}, 400

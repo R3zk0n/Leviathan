@@ -47,6 +47,7 @@ Return shape
 
 import re
 import html as html_module
+from project.report_html import sanitize_report_html
 
 
 # ---------------------------------------------------------------------------
@@ -548,13 +549,12 @@ def parse_appshark_detail(html: str) -> dict:
     """
     Parse an Appshark vulnerability detail HTML file.
 
-    Returns structured JSON alongside the original HTML content so that
-    consumers that still render the raw HTML (e.g. the details dialog) continue
-    to work without changes.
+    Returns structured JSON alongside passive, attribute-free report markup.
+    No executable elements or scanner-supplied attributes reach the renderer.
 
     Shape:
       {
-        "content":   str,          # original HTML, unchanged
+        "content":   str,          # sanitized passive report markup
         "callStack": [...],
         "blocks":    [...]
       }
@@ -580,7 +580,7 @@ def parse_appshark_detail(html: str) -> dict:
             _attach_java_source(blocks, java_text)
 
     return {
-        'content':   html,
+        'content':   sanitize_report_html(html),
         'callStack': call_stack,
         'blocks':    blocks,
     }

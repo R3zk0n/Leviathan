@@ -134,14 +134,6 @@ const routes = [
       }
   },
   {
-    path: '/scanner/:filename',
-    name: 'ScannerFilename',
-    component: () => import('@/pages/scanner/[filename].vue'),
-    meta: {
-      requiresAuth: true
-    }
-  },
-  {
     path: '/vulnerabilities/:filename',
     name: 'VulnerabilitiesFilename',
     component: () => import('@/pages/vulnerabilities/[filename].vue'),

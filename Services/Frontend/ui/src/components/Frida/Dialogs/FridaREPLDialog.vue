@@ -345,6 +345,7 @@
 </template>
 
 <script setup>
+import EventSource from '@/utils/authenticatedEventSource'
 import { ref, onMounted, watch, nextTick, computed, onUnmounted } from 'vue';
 import { useStore } from 'vuex';
 import axios from 'axios';

@@ -372,6 +372,7 @@
 </template>
 
 <script setup>
+import EventSource from '@/utils/authenticatedEventSource'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 

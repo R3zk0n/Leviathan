@@ -1,14 +1,15 @@
 <template>
   <nav>
-    <v-app-bar app :color="isDark ? 'black' : 'white'">
-      <v-toolbar-title class="text-uppercase">
-        <span class="font-weight-light d-flex align-items-center">
-          <router-link to="/" class="no-button-style">
-            <v-icon class="mr-2">mdi-security</v-icon>
-          </router-link>
-          Leviathan - Vuetify Version: <span>{{ version() }}</span>
-        </span>
-      </v-toolbar-title>
+    <v-app-bar app :color="isDark ? 'black' : 'white'" height="64">
+      <router-link
+        to="/"
+        class="brand-link"
+        :class="{ 'brand-dark': isDark }"
+        aria-label="Leviathan home"
+      >
+        <LeviathanIcon class="brand-icon" />
+        <span class="brand-text">Leviathan</span>
+      </router-link>
       <v-spacer></v-spacer>
       <v-app-bar-nav-icon @click.stop="drawer = !drawer" v-if="isAuthenticated"></v-app-bar-nav-icon>
       <template v-else>
@@ -117,18 +118,26 @@
         </v-list-group>
       </v-list>
     </v-navigation-drawer>
+    <v-snackbar v-model="logoutFailed" color="error" :timeout="-1">
+      Signed out on this device. Server logout failed; other sessions may still be active.
+      <template v-slot:actions>
+        <v-btn variant="text" @click="logoutFailed = false">Dismiss</v-btn>
+      </template>
+    </v-snackbar>
   </nav>
 </template>
 
 <script>
 import { mapState, mapActions } from 'vuex';
-import { version } from 'vuetify';
+import LeviathanIcon from '@/components/LeviathanIcon.vue';
 
 export default {
   name: "Navbar",
+  components: { LeviathanIcon },
   data() {
     return {
       drawer: false,
+      logoutFailed: false,
       links: [
         { icon: "mdi-view-dashboard", text: "Dashboard", route: "/" },
         { icon: "mdi-pen", text: "Editor", route: "/editor" },
@@ -148,7 +157,6 @@ export default {
       ],
       userItems: [
         { icon: 'mdi-account-circle', text: 'Profile', route: '/profile' },
-        { icon: 'mdi-cog', text: 'Settings', route: '/settings' },
         { icon: 'mdi-logout', text: 'Logout', action: 'logout' }
       ],
       isDarkLocal: false,
@@ -167,12 +175,14 @@ export default {
   },
   methods: {
     ...mapActions(['setTheme']),
-    version() {
-      return version;
-    },
-    logout() {
-      this.$store.commit('clearAuthData');
-      this.$router.push("/login");
+    async logout() {
+      try {
+        await this.$store.dispatch('logout');
+      } catch {
+        this.logoutFailed = true;
+      } finally {
+        this.$router.push("/login");
+      }
     },
     login() {
       this.$router.push("/login");
@@ -235,8 +245,32 @@ export default {
   margin-right: 16px;
 }
 
-.no-button-style {
-  color: inherit;
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+  color: #111;
   text-decoration: none;
+}
+
+.brand-link.brand-dark {
+  color: #fff;
+}
+
+.brand-icon {
+  height: 32px;
+  width: 32px;
+  display: block;
+  flex: none;
+}
+
+.brand-text {
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
 }
 </style>

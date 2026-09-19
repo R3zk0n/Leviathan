@@ -1,32 +1,4 @@
 """Access to engine-container state, without the Docker socket.
-
-Previously every operation here shelled into the engine container via
-``docker exec`` over a mounted /var/run/docker.sock. That made the backend
-root-equivalent on the host while it ingests untrusted APKs, and it round-tripped
-megabyte JSON blobs through a shell.
-
-Three kinds of path, three mechanisms:
-
-``Scans/``   Shared volume, mounted at the SAME absolute path in both containers
-             (/appshark_engine/appshark/Scans). Direct filesystem I/O, no
-             translation needed. This is the bulk of the traffic.
-
-``uploads/`` Shared volume, mounted at DIFFERENT paths (backend
-             /usr/src/app/uploads, engine /appshark_engine/appshark/uploads).
-             Direct I/O after translating the prefix.
-
-``config/``  NOT a volume — baked into the engine image by COPY. The backend has
-             no mount for it, so these must be delegated to the engine worker
-             (engine.read_config_file / engine.write_config_file).
-             Note this also means UI edits to rules and EngineConfig.json5 land
-             in the container's writable layer and are lost on rebuild. That is
-             pre-existing behaviour; fixing it needs a config volume.
-
-There is no ``exec()`` here any more, and no Docker client: the socket mount has
-been removed from docker-compose. Anything that needs to *run* something in the
-engine container must go through a named task in Services/Engine/worker/ — add
-a specific task rather than a general "run this command" one, since the Redis
-broker is not authenticated.
 """
 
 import logging
@@ -273,11 +245,9 @@ class ContainerClient:
             logger.error("find_sources dispatch failed under %s: %s", root, e)
             return []
 
-    def pkill(self, pattern: str) -> int:
-        """Kill matching processes in the engine container. Returns count killed."""
-        try:
-            result = self._send("engine.kill_appshark", [])
-            return int(result.get("killed", 0))
-        except Exception as e:
-            logger.error("pkill dispatch failed for %r: %s", pattern, e)
-            return 0
+    def cancel_scan(self, scan_guid: str) -> int:
+        """Cancel a registered scan; propagate failure rather than claim success."""
+        result = self._send("engine.kill_appshark", [scan_guid])
+        if result.get("status") != "ok":
+            raise RuntimeError("Engine could not confirm scan cancellation")
+        return int(result.get("killed", 0))

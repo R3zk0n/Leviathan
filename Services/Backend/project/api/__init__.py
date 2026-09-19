@@ -10,7 +10,6 @@ from project.api.audit import audit_namespace
 from project.api.engine.engine import engine_namespace
 from project.api.database.views import database_namespace
 from project.api.generate.generate import generate_namespace
-from project.api.secfinder.scanner import secfinder_namespace
 from project.api.users.views import users_namespace
 
 
@@ -43,7 +42,6 @@ api.add_namespace(audit_namespace, path="/audit")
 api.add_namespace(engine_namespace, path="/engine")
 api.add_namespace(database_namespace, path="/database")
 api.add_namespace(generate_namespace, path="/generate")
-api.add_namespace(secfinder_namespace, path="/secfinder")
 
 if ENABLE_IOS_ANALYSIS:
     # Both modules do `from strongarm.objc import ...` at module scope.

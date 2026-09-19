@@ -30,7 +30,7 @@ x-backend-common: &backend-common
 services:
   backend:
     <<: *backend-common
-    entrypoint: ["/usr/src/app/entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/usr/src/app/entrypoint.sh"]
     ports:
       - "127.0.0.1:5001:5000"
     environment:
@@ -47,7 +47,7 @@ services:
     <<: *backend-common
     # amd64-only: strongarm-dataflow has no linux/arm64 wheel. Other services stay native.
     platform: linux/amd64
-    entrypoint: ["/usr/src/app/entrypoint.ios.sh"]
+    entrypoint: ["/bin/bash", "/usr/src/app/entrypoint.ios.sh"]
     ports:
       - "127.0.0.1:5003:5000"
     environment:

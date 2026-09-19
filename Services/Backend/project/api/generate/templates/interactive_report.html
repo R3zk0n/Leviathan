@@ -82,7 +82,7 @@
                                         {{ 'Yes' if activity.exported else 'No' }}
                                     </span>
                                 </td>
-                                <td class="text-sm break-words">{{ activity.intent_filters | safe }}</td>
+                                <td class="text-sm break-words">{{ activity.intent_filters }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

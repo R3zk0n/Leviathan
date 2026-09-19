@@ -310,11 +310,11 @@
           <v-container fluid>
             <v-row>
               <v-col cols="12">
-                <div
-                  v-html="vulnerabilityDetailsContent"
+                <SafeReportHtml
+                  :content="vulnerabilityDetailsContent"
                   class="vulnerability-details-content"
                   :style="{ fontSize: contentFontSize }"
-                ></div>
+                />
               </v-col>
             </v-row>
           </v-container>
@@ -342,6 +342,7 @@
 </template>
 
 <script setup>
+import SafeReportHtml from '@/components/Common/SafeReportHtml.vue';
 import { ref, computed, onMounted, watch, reactive } from 'vue';
 import { useStore } from 'vuex';
 import { useRoute, useRouter } from 'vue-router';

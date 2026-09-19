@@ -483,7 +483,7 @@ def perform_secret_scan(self, decompile_result, filename):
 
             # Check if the decompiled path exists
             decompiled_path = f"/tmp/decompiled/{filename}"
-            if not engine_service.containers.file_exists(decompiled_path):
+            if not engine_service.containers.is_dir(decompiled_path):
                 error_msg = f"Decompiled directory not found in engine container: {decompiled_path}"
                 logger.error(error_msg)
                 return {
@@ -556,7 +556,7 @@ def scan_secrets_task(self, filename):
             # Check if app is already decompiled
             decompiled_path = f"/tmp/decompiled/{filename}"
             # Decompile if needed
-            if not engine_service.containers.file_exists(decompiled_path):
+            if not engine_service.read_decompiler_marker(filename):
                 logger.info(f"{filename} not decompiled, performing decompilation first...")
                 try:
                     decompiled_path = engine_service.decompile_apk(filename)
@@ -696,8 +696,11 @@ def run_scan_task(self, filename, settings, scan_guid=None):
         def update_scan_task(status, error_message=None):
             if scan_guid:
                 try:
-                    scan_task = ScanTask.query.filter_by(guid=scan_guid).first()
+                    scan_task = ScanTask.query.filter_by(guid=scan_guid).populate_existing().with_for_update().first()
                     if scan_task:
+                        if scan_task.error_message == 'Scan was stopped by user':
+                            db.session.rollback()
+                            return
                         scan_task.status = status
                         if error_message:
                             scan_task.error_message = error_message
@@ -713,7 +716,15 @@ def run_scan_task(self, filename, settings, scan_guid=None):
                     logger.error(f"Failed to update ScanTask {scan_guid}: {e}")
 
         try:
-            scan_result = engine_service.run_scan(settings)
+            if scan_guid:
+                scan_task = ScanTask.query.filter_by(guid=scan_guid).populate_existing().first()
+                if not scan_task or scan_task.status != 'PROCESSING':
+                    return {"status": "error", "result": {"message": "Scan is no longer active"}}
+            scan_result = engine_service.run_scan(settings, scan_guid=scan_guid)
+            if scan_guid:
+                scan_task = ScanTask.query.filter_by(guid=scan_guid).populate_existing().first()
+                if not scan_task or scan_task.error_message == 'Scan was stopped by user':
+                    return {"status": "error", "result": {"message": "Scan was stopped by user"}}
 
             if scan_result['status'] != 'success':
                 # OOM at the current ceiling -> re-queue once at the max heap
@@ -723,7 +734,10 @@ def run_scan_task(self, filename, settings, scan_guid=None):
                 if scan_result.get('oom') and scan_guid:
                     escalated = _escalate_heap(settings)
                     if escalated is not None:
-                        st = ScanTask.query.filter_by(guid=scan_guid).first()
+                        st = ScanTask.query.filter_by(guid=scan_guid).populate_existing().with_for_update().first()
+                        if st and st.error_message == 'Scan was stopped by user':
+                            db.session.rollback()
+                            return {"status": "error", "result": {"message": "Scan was stopped by user"}}
                         if st:
                             old = (settings or {}).get('javaXmx', '?')
                             st.settings = escalated

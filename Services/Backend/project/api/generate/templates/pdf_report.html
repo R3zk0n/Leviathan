@@ -340,7 +340,7 @@
                                 {% for filter in activity.intent_filters.split('\n') %}
                                     {% if filter != "No intent filters" %}
                                     <div class="intent-filter-item">
-                                        {{ filter | safe }}
+                                        {{ filter }}
                                     </div>
                                     {% else %}
                                     {{ filter }}

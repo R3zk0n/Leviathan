@@ -2,6 +2,8 @@ import { createStore } from 'vuex';
 import axios from 'axios';
 import fridaModule from "@/store/modules/fridaModule";
 import { resolveJavaDefinition } from '@/utils/javaDefinitionResolver';
+import { authApi } from '@/services';
+import { clearAuthSession, getAuthSessionVersion } from '@/utils/http';
 
 // Seed axios's default Authorization header from any persisted token. The
 // per-request interceptor in src/utils/http.js is the source of truth, but
@@ -103,8 +105,7 @@ export default createStore({
       state.user = null;
       state.accessToken = '';
       state.refreshToken = '';
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+      clearAuthSession();
     },
     setDecompiledService(state, { filename, serviceName, exists }) {
       if (!state.decompiledServices[filename]) {
@@ -478,8 +479,8 @@ export default createStore({
 
     async register({ commit }, authData) {
       try {
-        const response = await axios.post('http://localhost:5001/auth/register', authData);
-        commit('setUser', response.data);
+        const response = await authApi.register(authData);
+        commit('setUser', response);
       } catch (error) {
         console.error('Error registering:', error);
         throw error;
@@ -551,13 +552,18 @@ export default createStore({
     },
 
     async login({ commit }, authData) {
+      commit('clearAuthData');
+      const sessionVersion = getAuthSessionVersion();
       commit('auth_request');
       return new Promise((resolve, reject) => {
-        axios.post('http://localhost:5001/auth/login', authData)
+        authApi.login(authData)
           .then(resp => {
-            const accessToken = resp.data.access_token;
-            const refreshToken = resp.data.refresh_token;
-            const user = resp.data.user;
+            if (sessionVersion !== getAuthSessionVersion()) {
+              throw new Error('Login was cancelled because the session changed.');
+            }
+            const accessToken = resp.access_token;
+            const refreshToken = resp.refresh_token;
+            const user = resp.user;
             localStorage.setItem('access_token', accessToken);
             localStorage.setItem('refresh_token', refreshToken);
             axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
@@ -567,26 +573,31 @@ export default createStore({
             resolve(resp);
           })
           .catch(err => {
-            commit('auth_error');
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
+            if (sessionVersion === getAuthSessionVersion()) {
+              commit('auth_error');
+              commit('clearAuthData');
+            }
             reject(err);
           });
       });
     },
 
-    logout({ commit }) {
+    async logout({ commit, state }) {
+      const token = state.accessToken || localStorage.getItem('access_token');
+      // End the local session immediately, cancelling outstanding refreshes.
+      // Keep the captured token only for the server revocation request.
       commit('clearAuthData');
-      this.$router.push('/login');
+      if (token) await authApi.logout(token);
     },
 
     async refresh({ commit, state }) {
+      const sessionVersion = getAuthSessionVersion();
+      const originalRefreshToken = state.refreshToken;
       try {
-        const response = await axios.post('http://localhost:5001/auth/refresh', {
-          refresh_token: state.refreshToken,
-        });
-        const accessToken = response.data.access_token;
-        const refreshToken = response.data.refresh_token;
+        const response = await authApi.refresh(originalRefreshToken);
+        if (sessionVersion !== getAuthSessionVersion() || state.refreshToken !== originalRefreshToken) return;
+        const accessToken = response.access_token;
+        const refreshToken = response.refresh_token;
         localStorage.setItem('access_token', accessToken);
         localStorage.setItem('refresh_token', refreshToken);
         axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
@@ -594,7 +605,7 @@ export default createStore({
         commit('setRefreshToken', refreshToken);
       } catch (error) {
         console.error('Error refreshing token:', error);
-        commit('clearAuthData');
+        if (sessionVersion === getAuthSessionVersion()) commit('clearAuthData');
       }
     },
 

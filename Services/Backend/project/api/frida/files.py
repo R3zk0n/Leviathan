@@ -62,7 +62,7 @@ class FridaPull(Resource):
             if not all([device_id, pid, os_type]):
                 return {"status": "error", "message": "Missing required parameters"}, 400
 
-            device = frida.get_device_manager().get_device(device_id)
+            device = require_mobile_device(frida.get_device_manager().get_device(device_id))
 
             if not device:
                 if device_id.startswith("socket@"):

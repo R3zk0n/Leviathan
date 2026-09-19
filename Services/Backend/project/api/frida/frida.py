@@ -1,10 +1,4 @@
-"""Frida API namespace (aggregator).
-
-Route classes live in sibling modules (files, devices, scripts, repl,
-features, agent) and share state + helpers via _shared/helpers. Importing
-them here registers their @frida_namespace.route classes; the add_resource()
-block preserves the original alternate/explicit registrations verbatim.
-Public entry point: `from project.api.frida.frida import frida_namespace`.
+"""Frida API namespace
 """
 
 from project.api.frida._shared import frida_namespace  # noqa: F401

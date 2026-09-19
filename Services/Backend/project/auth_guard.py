@@ -12,16 +12,21 @@ does not match the tokens ``/auth/login`` actually issues.
 """
 
 import hmac
-import os
 
-from flask import g, request
+from flask import current_app, g, request
 
 from project.api.users.models import User
+from project.token_revoke import RevocationUnavailable, is_token_revoked
 
 # Shared secret for trusted service-to-service calls (e.g. the AI/MCP service
-# hitting /engine/* to fetch decompiled sources). Requests presenting a matching
-# X-Internal-Token bypass user-token validation. Unset => internal bypass off.
-_INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN") or None
+# hitting the three decompilation routes below). Match registered rules so a
+# future route sharing a path prefix does not inherit service permissions.
+_INTERNAL_GET_RULES = frozenset({
+    "/engine/decompile/<string:file_name>",
+    "/engine/decompile/check/<string:file_name>",
+    "/engine/decompiled/<string:file_name>/<string:java_file>",
+    "/engine/decompiled/<string:file_name>/<path:java_file>",
+})
 
 # Exact paths reachable without a valid token. Everything else is protected.
 _PUBLIC_PATHS = frozenset(
@@ -36,19 +41,6 @@ _PUBLIC_PATHS = frozenset(
 _PUBLIC_PREFIXES = (
     "/swagger",
     "/static/",
-    # Frida SSE output streams. The browser's native EventSource cannot send an
-    # Authorization header, so under the Bearer check below these 401 on connect and
-    # NO hook/console/script output ever reaches the REPL (immediate command results
-    # still return, since those go over axios — hence the "attaches but no output"
-    # symptom). They only stream from an in-memory queue keyed by an unguessable
-    # uuid4 session_id and expose no stored/DB data, so on this localhost research
-    # tool they are safe to leave open. To add auth later without a header: accept a
-    # short-lived "?token=" query param here (validate via User.decode_auth_token)
-    # and append it to the EventSource URL client-side. Scoped to these exact
-    # prefixes so POST control routes (/frida/execute, /frida/repl/init, ...) stay
-    # protected. See Frida_REPL_Reliability_Findings.md #2.
-    "/frida/hooks/",
-    "/frida/feature-stream/",
 )
 
 
@@ -60,6 +52,26 @@ def _is_public(path):
     if path in _PUBLIC_PATHS:
         return True
     return path.startswith(_PUBLIC_PREFIXES)
+
+
+class InvalidSession(ValueError):
+    """The bearer token is invalid, expired, or revoked."""
+
+
+def validate_user_token(token):
+    """Validate a bearer session; reusable by long-lived stream handlers."""
+    payload = User.decode_auth_payload(token)
+    if not isinstance(payload, dict):
+        raise InvalidSession("Invalid or expired token")
+    try:
+        int(payload["sub"])
+        if not payload.get("exp") or payload.get("iat") is None:
+            raise ValueError("Missing session claims")
+    except (ValueError, KeyError, TypeError):
+        raise InvalidSession("Invalid or expired token")
+    if is_token_revoked(int(payload["sub"]), payload["iat"]):
+        raise InvalidSession("Session ended. Please log in again.")
+    return payload
 
 
 def init_auth_guard(app):
@@ -76,9 +88,12 @@ def init_auth_guard(app):
 
         # Trusted internal services authenticate with a shared token instead of
         # a user JWT. Constant-time comparison to avoid leaking it via timing.
-        if _INTERNAL_SERVICE_TOKEN is not None:
+        service_token = current_app.config.get("INTERNAL_SERVICE_TOKEN")
+        if service_token is not None:
             internal = request.headers.get("X-Internal-Token", "")
-            if internal and hmac.compare_digest(internal, _INTERNAL_SERVICE_TOKEN):
+            if internal and hmac.compare_digest(internal.encode(), service_token.encode()):
+                if request.method != "GET" or not request.url_rule or request.url_rule.rule not in _INTERNAL_GET_RULES:
+                    return {"message": "Internal service is not allowed to access this operation"}, 403
                 g.internal_service = True
                 return None
 
@@ -87,11 +102,12 @@ def init_auth_guard(app):
             return _unauthorized("Missing or malformed Authorization header")
 
         token = auth_header.split(" ", 1)[1].strip()
-        user_id = User.decode_auth_token(token)
-        # decode_auth_token returns the int user id on success, or an error
-        # string ("Signature expired…", "Invalid token…") on failure.
-        if not isinstance(user_id, int):
-            return _unauthorized("Invalid or expired token")
+        try:
+            payload = validate_user_token(token)
+        except InvalidSession as exc:
+            return _unauthorized(str(exc))
+        except RevocationUnavailable:
+            return {"message": "Session service unavailable. Please retry."}, 503
 
-        g.user_id = user_id
+        g.user_id = int(payload["sub"])
         return None

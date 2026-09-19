@@ -1,13 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { useStore } from 'vuex';
-import { jwtDecode } from 'jwt-decode';
+import { usersApi } from '@/services';
 
-
-import axios from 'axios';
-
-
-const store = useStore();
 const user = ref(null);
 const username = ref('');
 const email = ref('');
@@ -21,39 +15,21 @@ const loading = ref(false);
 
 const loggedInUsername = computed(() => user.value?.username || 'Unknown User');
 
-const apiUrl = import.meta.env.VITE_APP_API_URL;
-
-const decodeToken = (token) => {
-  try {
-    const decoded = jwtDecode(token);
-    return decoded.sub; // This should be the user ID
-  } catch (error) {
-    console.error('Error decoding token:', error);
-    return null;
-  }
+const applyProfile = (data) => {
+  user.value = data;
+  username.value = data.username || '';
+  email.value = data.email || '';
+  createdAt.value = data.created_at ? new Date(data.created_at).toLocaleString() : '';
+  updatedAt.value = data.updated_at ? new Date(data.updated_at).toLocaleString() : '';
 };
+
 onMounted(async () => {
   loading.value = true;
   try {
-    const token = store.state.accessToken;
-    const userId = decodeToken(token);
-
-    if (!userId) {
-      throw new Error('Invalid token');
-    }
-
-    const response = await axios.get(`${apiUrl}/users/profile`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    user.value = response.data;
-    username.value = user.value.username;
-    email.value = user.value.email;
-    createdAt.value = new Date(user.value.created_at).toLocaleString();
-    updatedAt.value = new Date(user.value.updated_at).toLocaleString();
+    applyProfile(await usersApi.getProfile());
   } catch (error) {
     console.error('Error fetching profile:', error);
-    message.value = 'Failed to load profile information.';
+    message.value = error.response?.data?.message || 'Failed to load profile information.';
   } finally {
     loading.value = false;
   }
@@ -62,18 +38,14 @@ onMounted(async () => {
 const updateProfile = async () => {
   loading.value = true;
   try {
-    const response = await axios.put(`${apiUrl}/api/users/profile`,
-      { username: username.value, email: email.value },
-      { headers: { Authorization: `Bearer ${store.state.accessToken}` } }
-    );
-    user.value = response.data;
-    username.value = user.value.username;
-    email.value = user.value.email;
-    updatedAt.value = new Date(user.value.updated_at).toLocaleString();
+    applyProfile(await usersApi.updateProfile({
+      username: username.value,
+      email: email.value,
+    }));
     message.value = 'Profile updated successfully.';
   } catch (error) {
     console.error('Error updating profile:', error);
-    message.value = 'Failed to update profile.';
+    message.value = error.response?.data?.message || 'Failed to update profile.';
   } finally {
     loading.value = false;
   }
@@ -86,17 +58,17 @@ const changePassword = async () => {
   }
   loading.value = true;
   try {
-    await axios.put(`${apiUrl}/api/users/profile/password`,
-      { current_password: currentPassword.value, new_password: newPassword.value },
-      { headers: { Authorization: `Bearer ${store.state.accessToken}` } }
-    );
+    await usersApi.changePassword({
+      current_password: currentPassword.value,
+      new_password: newPassword.value,
+    });
     message.value = 'Password changed successfully.';
     currentPassword.value = '';
     newPassword.value = '';
     confirmPassword.value = '';
   } catch (error) {
     console.error('Error changing password:', error);
-    message.value = 'Failed to change password.';
+    message.value = error.response?.data?.message || 'Failed to change password.';
   } finally {
     loading.value = false;
   }
@@ -139,7 +111,6 @@ const changePassword = async () => {
                 v-model="email"
                 label="Email"
                 type="email"
-                required
                 :disabled="loading"
               ></v-text-field>
               <v-btn type="submit" color="primary" :loading="loading">Update Profile</v-btn>

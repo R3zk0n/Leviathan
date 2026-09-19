@@ -1,5 +1,9 @@
 """Audit route classes (registered on audit_namespace)."""
 from project.api.audit._shared import *  # noqa: F401,F403  (re-export shared surface)
+from project.api.audit.artifacts import (
+    ArtifactError, ArtifactConflict, artifact_path, artifact_mutation,
+    apk_identity, unique_record, sha256_file, store_upload, validate_ipa,
+)
 from project.api.audit.parsing import (
     UNKNOWN_COMPONENT_STATUS,
     pretty_print_xml,
@@ -22,9 +26,6 @@ from project.api.audit.parsing import (
 )
 
 
-_apk_package_cache = {}
-
-
 @audit_namespace.route('/upload/bulk')
 class BulkUploadAPK(Resource):
     pass;
@@ -41,44 +42,33 @@ class UploadAPK(Resource):
         file = request.files['file']
         if file.filename == '':
             return {'message': 'No selected file'}, 400
-        if file:
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            file.save(file_path)
-
-            file_type = request.args.get('type', 'android').lower()
-
-            print(f"File uploaded: {filename}, Type: {file_type}")
-            try:
-                if file_type == 'ios':
-                    print("iOS file uploaded")
-                    return {'message': 'File uploaded and processed', 'filename': filename}, 201
-                elif file_type == 'audit':
-                    # Process the uploaded APK
-                    self.process_apk(file_path, filename)
-                    return {'message': 'File uploaded and processed', 'filename': filename}, 201
-                else:
-                    return {'message': 'Invalid file type'}, 400
-            except Exception as e:
-                logger.error(f"Error processing uploaded mobile file {filename}: {str(e)}")
-                return {'message': f'File uploaded but processing failed: {str(e)}'}, 500
+        filename = secure_filename(file.filename)
+        file_type = request.args.get('type', 'android').lower()
+        suffix = '.ipa' if file_type == 'ios' else '.apk'
+        if file_type not in ('audit', 'android', 'ios') or not filename.lower().endswith(suffix):
+            return {'message': 'Invalid file type or extension'}, 400
+        try:
+            prepare = validate_ipa if file_type == 'ios' else lambda path: self.process_apk(path, filename)
+            store_upload(file, UPLOAD_FOLDER, filename, prepare,
+                         db.session.commit, db.session.rollback)
+            return {'message': 'File uploaded and processed', 'filename': filename}, 201
+        except ArtifactError as e:
+            return {'message': str(e)}, e.status_code
+        except Exception as e:
+            logger.exception(f"Error processing uploaded mobile file {filename}: {e}")
+            return {'message': 'Upload failed; no existing artifact was replaced'}, 500
 
     def process_apk(self, file_path, filename):
-        apk = APK(file_path)
-        package_name = apk.get_package()
-        if package_name is None or package_name.strip() == "":
-            # Fall back to filename without extension as package name
-            base_filename = os.path.splitext(filename)[0]
-            package_name = f"unknown.{base_filename.lower().replace(' ', '_').replace('-', '_')}"
-            logger.warning(f"No package name found in APK, using generated name: {package_name}")
         try:
-            version = apk.get_androidversion_name()
-            # Explicitly handle None or empty string case
-            if version is None or version.strip() == "":
-                version = "Unknown"
-        except Exception as e:
-            logger.error(f"Error getting version from APK: {e}")
-            version = "Unknown"
+            apk = APK(file_path)
+            package_name, version = apk_identity(apk)
+            manifest = apk.get_android_manifest_xml()
+            if manifest is None or manifest.find('.//application') is None:
+                raise ArtifactError('APK has no application manifest')
+        except ArtifactError:
+            raise
+        except Exception as exc:
+            raise ArtifactError('Invalid APK') from exc
         app_name = apk.get_app_name()
         if app_name is None or app_name.strip() == "":
             # Fall back to filename without extension as app name
@@ -92,47 +82,23 @@ class UploadAPK(Resource):
         manifest_xml = manifest_axml.get_xml().decode('utf-8')
 
         # Add or update AndroidInfo
-        android_info = AndroidInfo.query.filter_by(package_name=package_name, version=version).first()
-        if not android_info:
-            android_info = AndroidInfo(
-                app_name=app_name,
-                package_name=package_name,
-                version=version,
-                developer=None,  # You might want to extract this if available
-                release_date=None,  # You might want to extract this if available
-                manifest_xml=manifest_xml
-            )
-            db.session.add(android_info)
-            db.session.flush()  # Ensure android_info has an id
-        else:
-            # Update manifest_xml if the android_info already exists
-            android_info.manifest_xml = manifest_xml
-
-        # Add or update APK details
-        apk_details = ApkDetails.query.filter_by(android_info_id=android_info.id).first()
-        if not apk_details:
-            apk_details = ApkDetails(
-                android_info_id=android_info.id,
-                app_version=version,
-                package_name=package_name,
-                sdk_version=apk.get_target_sdk_version(),
-                debuggable=apk.get_android_manifest_xml().find(".//application").get(
-                    "{http://schemas.android.com/apk/res/android}debuggable") == "true",
-                main_activity=apk.get_main_activity(),
-                # Get the user from the AndroidManifest.xml if it exists
-                android_user=apk.get_android_manifest_xml().get(
-                    "{http://schemas.android.com/apk/res/android}sharedUserId")
-            )
-            db.session.add(apk_details)
-        else:
-            apk_details.app_version = version
-            apk_details.package_name = package_name
-            apk_details.sdk_version = apk.get_target_sdk_version()
-            apk_details.debuggable = apk.get_android_manifest_xml().find(".//application").get(
-                "{http://schemas.android.com/apk/res/android}debuggable") == "true"
-            apk_details.main_activity = apk.get_main_activity()
-            apk_details.android_user = apk.get_android_manifest_xml().get(
-                "{http://schemas.android.com/apk/res/android}sharedUserId")
+        android_info = unique_record(AndroidInfo.query.filter_by(
+            package_name=package_name, version=version).limit(2).all())
+        if android_info:
+            raise ArtifactConflict('This package and version already has an artifact record')
+        android_info = AndroidInfo(
+            app_name=app_name, package_name=package_name, version=version,
+            developer=None, release_date=None, manifest_xml=manifest_xml)
+        db.session.add(android_info)
+        db.session.flush()
+        apk_details = ApkDetails(
+            android_info_id=android_info.id, app_version=version,
+            package_name=package_name, sdk_version=apk.get_target_sdk_version(),
+            debuggable=manifest.find('.//application').get(
+                '{http://schemas.android.com/apk/res/android}debuggable') == 'true',
+            main_activity=apk.get_main_activity(),
+            android_user=manifest.get('{http://schemas.android.com/apk/res/android}sharedUserId'))
+        db.session.add(apk_details)
 
         # Process components
         self.process_activities(apk, android_info)
@@ -141,7 +107,7 @@ class UploadAPK(Resource):
         self.process_providers(apk, android_info)
 
         print(f"Found sharedUserId: {apk_details.android_user}")
-        db.session.commit()
+        db.session.flush()  # The upload transaction commits only after publication.
 
     def process_activities(self, apk, android_info):
         manifest_xml = apk.get_android_manifest_xml()
@@ -390,48 +356,14 @@ class UploadAPK(Resource):
                 # Process metadata if needed
                 # You can add code here to process metadata if required
 
-        db.session.commit()
+        db.session.flush()  # Publication owns the transaction boundary.
 
 
 @audit_namespace.route('/details/<string:identifier>')
 class GetDetails(Resource):
-    def _get_apk_info(self, identifier: str) -> Optional[Tuple[str, str]]:
-        """Get APK package name from file if it exists (cached by path, mtime)."""
-        file_path = os.path.join(UPLOAD_FOLDER, f"{identifier}.apk")
-        if os.path.exists(file_path):
-            try:
-                mtime = os.path.getmtime(file_path)
-                cached = _apk_package_cache.get(file_path)
-                if cached and cached[0] == mtime:
-                    return cached[1]
-                package = pyAPK(file_path).package
-                _apk_package_cache[file_path] = (mtime, package)
-                return package
-            except Exception as e:
-                logger.warning(f"Failed to extract package name from {file_path}: {e}")
-        return None
-
     def get(self, identifier: str) -> tuple:
         try:
-            # Strip .apk extension if present
-            base_identifier = identifier.replace('.apk', '')
-
-            # First try to get the actual package name from APK if file exists
-            actual_package = self._get_apk_info(base_identifier)
-
-            query = AndroidInfo.query.outerjoin(ApkDetails)
-
-            if actual_package:
-                # If we have the actual package name, only look for exact match
-                android_info = query.filter(AndroidInfo.package_name == actual_package).first()
-            else:
-                # Fallback to fuzzy matching only if we couldn't get the actual package name
-                android_info = query.filter(
-                    or_(
-                        AndroidInfo.package_name == base_identifier,
-                        AndroidInfo.package_name.like(f"%{base_identifier}%")
-                    )
-                ).first()
+            android_info = find_android_info(identifier)
 
             if android_info and android_info.apk_details:
                 logger.debug(f"Found details for {identifier} with package {android_info.package_name}")
@@ -449,6 +381,8 @@ class GetDetails(Resource):
                 'message': f'No details found for {identifier}. Please ensure the app is properly uploaded.'
             }, 404
 
+        except ArtifactError as e:
+            return {'message': str(e)}, e.status_code
         except Exception as e:
             logger.error(f"Error fetching details for {identifier}: {str(e)}")
             return {'message': str(e)}, 500
@@ -458,7 +392,10 @@ class GetDetails(Resource):
 class GetRecon(Resource):
     def get(self, filename):
         print("Filename: ", filename)
-        file_path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
+        try:
+            file_path = artifact_path(UPLOAD_FOLDER, filename)
+        except ArtifactError as exc:
+            return {'message': str(exc)}, exc.status_code
         print("File Path: ", file_path)
         if not os.path.exists(file_path):
             return {'message': 'File not found'}, 404
@@ -466,7 +403,8 @@ class GetRecon(Resource):
         try:
             # Try to get cached recon data from database
             android_info = find_android_info(filename)
-            if android_info and android_info.apk_details and android_info.apk_details.recon_data:
+            if (android_info and android_info.apk_details and android_info.apk_details.recon_data
+                    and android_info.apk_details.recon_data.get('sha256') == sha256_file(file_path)):
                 logger.info(f"Returning cached recon data for {filename}")
                 return android_info.apk_details.recon_data, 200
 
@@ -549,6 +487,8 @@ class GetRecon(Resource):
 
             return recon_data, 200
 
+        except ArtifactError as e:
+            return {'message': str(e)}, e.status_code
         except Exception as e:
             print(f"Error processing file: {e}")
             return {'message': str(e)}, 500
@@ -576,13 +516,8 @@ class GetManifest(Resource):
             # Try to fetch manifest from database first
             android_info = find_android_info(filename)
 
-            if android_info and android_info.manifest_xml:
-                logger.debug(f"Returning cached manifest for {filename} from database")
-                return jsonify({"manifest": android_info.manifest_xml})
-
-            # Fallback to parsing APK if not in database (for backwards compatibility)
-            logger.warning(f"Manifest not found in database for {filename}, falling back to parsing APK")
-            file_path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
+            # The artifact is authoritative even for legacy same-version builds.
+            file_path = artifact_path(UPLOAD_FOLDER, filename)
 
             if not os.path.exists(file_path):
                 logger.error(f"File not found at {file_path}")
@@ -592,14 +527,10 @@ class GetManifest(Resource):
             manifest_axml = apk.get_android_manifest_axml()
             manifest = manifest_axml.get_xml().decode('utf-8')
 
-            # Store in database for future requests
-            if android_info:
-                android_info.manifest_xml = manifest
-                db.session.commit()
-                logger.info(f"Stored manifest for {filename} in database")
-
             return jsonify({"manifest": manifest})
 
+        except ArtifactError as e:
+            return {'message': str(e)}, e.status_code
         except Exception as e:
             logger.error(f"Error fetching manifest for {filename}: {str(e)}")
             return {'message': str(e)}, 500
@@ -699,143 +630,110 @@ class GetReceivers(Resource):
 @audit_namespace.route('/delete/<filename>')
 class DeleteFile(Resource):
     def delete(self, filename):
+        backup = None
+        file_path = None
         try:
-            # Delete the file
-            file_path = os.path.join(UPLOAD_FOLDER, secure_filename(filename))
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logger.info(f"File {filename} deleted from filesystem.")
-            else:
-                logger.warning(f"File {filename} not found in filesystem.")
+            file_path = artifact_path(UPLOAD_FOLDER, filename)
+            with artifact_mutation(UPLOAD_FOLDER):
+                if not os.path.isfile(file_path):
+                    return {'message': 'File not found'}, 404
+                if not filename.lower().endswith(('.apk', '.ipa')):
+                    raise ArtifactError('Unsupported artifact type')
 
-            # Delete database records
-            app_name = os.path.splitext(filename)[0]  # Remove file extension
-            try:
-                # Find all matching AndroidInfo records
-                matching_records = AndroidInfo.query.filter(
-                    or_(
-                        AndroidInfo.app_name == app_name,
-                        AndroidInfo.app_name == filename,
-                        AndroidInfo.package_name.like(f"%{app_name}%")
-                    )
-                ).all()
+                android_info = None
+                shared_identity = False
+                if filename.lower().endswith('.apk'):
+                    android_info = find_android_info(filename)
+                    identity = apk_identity(APK(file_path))
+                    # Legacy aliases can share one record. Keep that record while
+                    # another artifact still references it. Unreadable siblings
+                    # cannot safely establish ownership, so reject deletion.
+                    for sibling in os.listdir(UPLOAD_FOLDER):
+                        if sibling == filename or not sibling.lower().endswith('.apk'):
+                            continue
+                        sibling_path = artifact_path(UPLOAD_FOLDER, sibling)
+                        if os.path.isfile(sibling_path):
+                            try:
+                                sibling_identity = apk_identity(APK(sibling_path))
+                            except Exception as exc:
+                                raise ArtifactConflict('Cannot establish ownership of another APK') from exc
+                            shared_identity = shared_identity or sibling_identity == identity
+                    if ScanTask.query.filter(
+                            or_(ScanTask.filename == filename,
+                                ScanTask.android_info_id == android_info.id if android_info else False),
+                            ScanTask.status.in_(['WAITING', 'PROCESSING'])).first():
+                        raise ArtifactConflict('Artifact has an active scan; stop it before deletion')
 
-                if matching_records:
-                    for record in matching_records:
-                        # Delete related records
-                        self.delete_related_records(record)
+                if android_info and not shared_identity:
+                    self.delete_related_records(android_info)
+                    AndroidInfo.query.filter_by(id=android_info.id).delete(synchronize_session=False)
+                    db.session.flush()
 
-                    # Directly delete matching AndroidInfo records
-                    AndroidInfo.query.filter(
-                        or_(
-                            AndroidInfo.app_name == app_name,
-                            AndroidInfo.app_name == filename,
-                            AndroidInfo.package_name.like(f"%{app_name}%")
-                        )
-                    ).delete(synchronize_session=False)
-
+                descriptor, backup = tempfile.mkstemp(prefix='.audit-delete-', dir=UPLOAD_FOLDER)
+                os.close(descriptor)
+                os.replace(file_path, backup)
+                try:
                     db.session.commit()
-                    logger.info(f"All AndroidInfo records for {filename} deleted.")
-                    return {'message': 'File and all associated records deleted successfully'}, 200
-                else:
-                    logger.warning(f"No database records found for {filename}.")
-                    return {'message': 'File deleted, but no associated records found in database'}, 200
-
-            except SQLAlchemyError as e:
-                logger.error(f"Database error while deleting records for {filename}: {str(e)}")
-                db.session.rollback()
-                return {'message': f'Error occurred while deleting database records: {str(e)}'}, 500
-
+                except Exception:
+                    db.session.rollback()
+                    os.replace(backup, file_path)
+                    backup = None
+                    raise
+                # Metadata is committed. A cleanup failure leaves a hidden
+                # recovery file rather than claiming the transaction rolled back.
+                try:
+                    os.unlink(backup)
+                except OSError:
+                    logger.warning('Deleted artifact retained in recovery file %s', backup)
+                backup = None
+                return {'message': 'File deleted successfully; shared records retained' if shared_identity
+                        else 'File and associated records deleted successfully'}, 200
+        except ArtifactError as e:
+            db.session.rollback()
+            return {'message': str(e)}, e.status_code
         except Exception as e:
-            logger.error(f"Error deleting {filename}: {str(e)}")
-            return {'message': f'Error occurred: {str(e)}'}, 500
+            db.session.rollback()
+            logger.exception(f'Error deleting {filename}: {e}')
+            return {'message': 'Deletion failed; artifact ownership was not changed'}, 500
+        finally:
+            # Empty placeholder only: the original file is still present when
+            # moving it to the recovery path failed.
+            if backup and file_path and os.path.isfile(file_path):
+                os.unlink(backup)
 
     def delete_related_records(self, android_info):
+        """Delete only descendants of the resolved row, children before parents."""
         inspector = inspect(db.engine)
-
-        related_models = [
-            (ApkDetails, 'apk_details'),
-            (AndroidActivity, 'android_activities'),
-            (AndroidService, 'android_services'),
-            (AndroidReceiver, 'android_receivers'),
-            (AndroidProvider, 'android_providers'),
-            (ActivityAction, 'activity_actions'),
-            (ActivityCategory, 'activity_categories'),
-            (ActivityScheme, 'activity_schemes'),
-            (ActivityIntentFilter, 'activity_intent_filters'),
-            (ServiceAction, 'service_actions'),
-            (ServiceCategory, 'service_categories'),
-            (ServiceScheme, 'service_schemes'),
-            (ReceiverAction, 'receiver_actions'),
-            (ReceiverCategory, 'receiver_categories'),
-            (AndroidSourceCode, 'android_source_code'),
-            (AppsharkScan, 'appshark_scans'),
-            (AppsharkSecurityIssue, 'appshark_security_issues'),
-            (AppsharkVulnerability, 'appshark_vulnerabilities')
+        groups = [
+            (AndroidActivity, 'activity_id',
+             [ActivityAction, ActivityCategory, ActivityScheme, ActivityIntentFilter]),
+            (AndroidService, 'service_id', [ServiceAction, ServiceCategory, ServiceScheme]),
+            (AndroidReceiver, 'receiver_id', [ReceiverAction, ReceiverCategory, ReceiverScheme]),
+            (AndroidProvider, 'provider_id',
+             [ProviderAction, ProviderCategory, ProviderScheme, ProviderMetadata]),
         ]
-
-        # Only include ProviderAction, ProviderCategory, and ProviderScheme if they are defined
-        if 'ProviderAction' in globals():
-            related_models.append((ProviderAction, 'provider_actions'))
-        if 'ProviderCategory' in globals():
-            related_models.append((ProviderCategory, 'provider_categories'))
-        if 'ProviderScheme' in globals():
-            related_models.append((ProviderScheme, 'provider_schemes'))
-
-        for model, table_name in related_models:
-            if inspector.has_table(table_name):
-                try:
-                    if model == ApkDetails:
-                        # Special case for ApkDetails due to one-to-one relationship
-                        ApkDetails.query.filter_by(android_info_id=android_info.id).delete(synchronize_session=False)
-                    elif hasattr(model, 'android_info_id'):
-                        model.query.filter_by(android_info_id=android_info.id).delete(synchronize_session=False)
-                    elif hasattr(model, 'appshark_scan_id'):
-                        # For AppsharkSecurityIssue and AppsharkVulnerability
-                        scan_ids = [scan.id for scan in AppsharkScan.query.filter_by(android_info_id=android_info.id)]
-                        model.query.filter(model.appshark_scan_id.in_(scan_ids)).delete(synchronize_session=False)
-                    elif hasattr(model, 'provider_id'):
-                        # For provider-related models, delete based on the provider's ID
-                        provider_ids = [p.id for p in AndroidProvider.query.filter_by(android_info_id=android_info.id)]
-                        model.query.filter(model.provider_id.in_(provider_ids)).delete(synchronize_session=False)
-                    else:
-                        logger.warning(f"No direct link found for {model.__name__}. Skipping.")
-                except Exception as e:
-                    logger.warning(f"Error deleting {model.__name__} records: {str(e)}")
-                    db.session.rollback()
-            else:
-                logger.warning(f"Table {table_name} does not exist. Skipping.")
-
-        db.session.flush()
+        for parent, key, children in groups:
+            ids = [row.id for row in parent.query.filter_by(android_info_id=android_info.id).all()]
+            for child in children:
+                if ids and inspector.has_table(child.__tablename__):
+                    child.query.filter(getattr(child, key).in_(ids)).delete(synchronize_session=False)
+        scan_ids = [row.id for row in AppsharkScan.query.filter_by(android_info_id=android_info.id).all()]
+        if scan_ids:
+            issue_ids = [row.id for row in AppsharkSecurityIssue.query.filter(
+                AppsharkSecurityIssue.appshark_scan_id.in_(scan_ids)).all()]
+            if issue_ids:
+                AppsharkVulnerability.query.filter(
+                    AppsharkVulnerability.security_issue_id.in_(issue_ids)).delete(synchronize_session=False)
+            AppsharkSecurityIssue.query.filter(
+                AppsharkSecurityIssue.appshark_scan_id.in_(scan_ids)).delete(synchronize_session=False)
+        for model in (ApkDetails, AndroidActivity, AndroidService, AndroidReceiver,
+                      AndroidProvider, AndroidSourceCode, AppsharkScan, AppSecret, ScanTask):
+            if inspector.has_table(model.__tablename__):
+                model.query.filter_by(android_info_id=android_info.id).delete(synchronize_session=False)
 
 
 @audit_namespace.route('/files')
 class ListFiles(Resource):
-    def _get_apk_package_name(self, file_path: str) -> Optional[str]:
-        """Extract package name from an APK, cached by (path, mtime).
-
-        Avoids re-running androguard on every APK on every /audit/files call;
-        re-parses only when the file's mtime changes.
-        """
-        try:
-            mtime = os.path.getmtime(file_path)
-            cached = _apk_package_cache.get(file_path)
-            if cached and cached[0] == mtime:
-                return cached[1]
-            package = pyAPK(file_path).package
-            _apk_package_cache[file_path] = (mtime, package)
-            return package
-        except Exception as e:
-            logger.warning(f"Failed to extract package name from {file_path}: {e}")
-            return None
-
-    def _find_matching_info(self, base_name: str, info_map: Dict) -> Optional[object]:
-        """Find matching Android info based on package name."""
-        for package_name, info in info_map.items():
-            if package_name and (package_name in base_name or base_name in package_name):
-                return info
-        return None
-
     def _build_file_info(self, file: str, matching_info: Optional[object] = None) -> Dict:
         """Build response dictionary for a file."""
         manifest_link = f"{request.url_root}api/audit/manifest/{file}"
@@ -868,25 +766,23 @@ class ListFiles(Resource):
         try:
             files = [
                 f for f in os.listdir(UPLOAD_FOLDER)
-                if os.path.isfile(os.path.join(UPLOAD_FOLDER, f))
+                if not f.startswith('.') and f.lower().endswith(('.apk', '.ipa'))
+                and os.path.isfile(os.path.join(UPLOAD_FOLDER, f))
             ]
-
-            # Only fetch Android info for APK files
-            android_infos = AndroidInfo.query.outerjoin(ApkDetails).all()
-            info_map = {info.package_name: info for info in android_infos if info.package_name}
 
             file_data = []
             for file in files:
                 matching_info = None
+                identity_error = None
                 if file.lower().endswith('.apk'):
-                    file_path = os.path.join(UPLOAD_FOLDER, file)
-                    base_name = os.path.splitext(file)[0]
-                    package_name = self._get_apk_package_name(file_path)
-
-                    if package_name:
-                        matching_info = info_map.get(package_name) or self._find_matching_info(base_name, info_map)
+                    try:
+                        matching_info = find_android_info(file)
+                    except ArtifactError as exc:
+                        identity_error = str(exc)
 
                 file_info = self._build_file_info(file, matching_info)
+                if identity_error:
+                    file_info['identityError'] = identity_error
                 file_data.append(file_info)
 
             return jsonify(file_data)
@@ -950,22 +846,7 @@ class ComponentStatus(Resource):
             # Use database-only lookup to avoid slow APK parsing
             android_info = find_android_info(app_name, skip_apk_analysis=True)
 
-            # If not found, try searching by package name in component
-            if not android_info and '.' in component_name:
-                package_parts = component_name.split('.')
-                for i in range(len(package_parts), 2, -1):
-                    potential_package = '.'.join(package_parts[:i])
-                    android_info = AndroidInfo.query.filter(
-                        AndroidInfo.package_name == potential_package
-                    ).first()
-                    if android_info:
-                        break
-
             if not android_info:
-                # Try direct component lookup as fallback
-                status = find_component_directly(component_name)
-                if status:
-                    return status, 200
                 return UNKNOWN_COMPONENT_STATUS, 200
 
             package_name = android_info.package_name
@@ -1042,12 +923,10 @@ class ComponentStatus(Resource):
                         "has_intent_filters": False
                     }
 
-            # Not found in the app's components - try direct lookup as fallback
-            status = find_component_directly(component_name)
-            if status:
-                return status, 200
             return UNKNOWN_COMPONENT_STATUS, 200
 
+        except ArtifactError as exc:
+            return {'message': str(exc)}, exc.status_code
         except Exception as e:
             print(f"Error in ComponentStatus: {str(e)}")
             return UNKNOWN_COMPONENT_STATUS, 200
@@ -1070,39 +949,8 @@ class ComponentStatusBatch(Resource):
             # The manifest is already stored in database when APK is uploaded
             android_info = find_android_info(app_name, skip_apk_analysis=True)
 
-            # If not found by app_name, try to extract package from each component's prefix
-            # (trying only the first component fails when it comes from a library package)
-            if not android_info and component_names:
-                for candidate_component in component_names:
-                    if '.' not in candidate_component:
-                        continue
-                    package_parts = candidate_component.split('.')
-                    for i in range(len(package_parts), 2, -1):
-                        potential_package = '.'.join(package_parts[:i])
-                        android_info = AndroidInfo.query.filter(
-                            AndroidInfo.package_name == potential_package
-                        ).first()
-                        if android_info:
-                            print(f"Found app by package name from component: {potential_package}")
-                            break
-                    if android_info:
-                        break
-
             if not android_info:
-                # No app found by name - try direct component lookup as fallback
-                print(f"No app found in database for {app_name}, trying direct component lookup...")
-                results = {}
-                for component_name in component_names:
-                    status = find_component_directly(component_name)
-                    if status:
-                        results[component_name] = status
-                        print(f"[DIRECT] Found {component_name}: exported={status['exported']}, accessible={status['accessible']}")
-                    else:
-                        results[component_name] = UNKNOWN_COMPONENT_STATUS
-
-                found_count = sum(1 for s in results.values() if s.get('type') != 'UNKNOWN')
-                print(f"Direct lookup complete: {found_count}/{len(component_names)} components found")
-                return results, 200
+                return {name: UNKNOWN_COMPONENT_STATUS for name in component_names}, 200
 
             print(f"Found app: {android_info.app_name} (ID: {android_info.id}, package: {android_info.package_name})")
 
@@ -1201,16 +1049,12 @@ class ComponentStatusBatch(Resource):
                     }
                     continue
 
-                # Not found in app components, try direct lookup
-                not_found_status = find_component_directly(component_name)
-                if not_found_status:
-                    results[component_name] = not_found_status
-                    print(f"[BATCH DIRECT LOOKUP] Found {component_name}: {not_found_status}")
-                else:
-                    results[component_name] = UNKNOWN_COMPONENT_STATUS
+                results[component_name] = UNKNOWN_COMPONENT_STATUS
 
             return results, 200
 
+        except ArtifactError as exc:
+            return {'message': str(exc)}, exc.status_code
         except Exception as e:
             print(f"Error in ComponentStatusBatch: {str(e)}")
             import traceback

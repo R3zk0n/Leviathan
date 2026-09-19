@@ -1354,6 +1354,7 @@
 
 
 <script setup>
+import EventSource from '@/utils/authenticatedEventSource'
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import CryptoMonitor from "@/components/Frida/Dialogs/FridaHooks/iOS/Crypto/CryptoMonitor.vue";

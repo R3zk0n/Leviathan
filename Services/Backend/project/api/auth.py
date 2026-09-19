@@ -1,7 +1,11 @@
-from flask import request
+from datetime import datetime, timezone
+
+from flask import request, g
 from flask_restx import Namespace, Resource, fields
 from project.api.users.services import register_user, login_user, get_user_by_id
 from project.api.users.models import User
+from project.token_revoke import RevocationUnavailable, revoke_user_tokens
+from project.auth_guard import InvalidSession, validate_user_token
 
 
 auth_namespace = Namespace("auth")
@@ -94,22 +98,47 @@ class Refresh(Resource):
         post_data = request.get_json()
         refresh_token = post_data.get("refresh_token")
 
-        resp = User.decode_auth_token(refresh_token)
-        if not isinstance(resp, int):
-            auth_namespace.abort(401, resp)
+        try:
+            payload = validate_user_token(refresh_token)
+        except InvalidSession as exc:
+            auth_namespace.abort(401, str(exc))
+        except RevocationUnavailable:
+            auth_namespace.abort(503, "Session service unavailable. Please retry.")
 
-        user = get_user_by_id(resp)
+        try:
+            user_id = int(payload["sub"])
+            expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+        except (ValueError, KeyError, TypeError):
+            auth_namespace.abort(401, "Invalid token")
+
+        if expires_at <= datetime.now(timezone.utc):
+            auth_namespace.abort(401, "Session expired. Please log in again.")
+        user = get_user_by_id(user_id)
         if not user:
             auth_namespace.abort(401, "Invalid token")
 
-        access_token = user.encode_auth_token(user.id)
-        refresh_token = user.encode_auth_token(user.id)
+        # Keep the original 6-hour expiry so refresh cannot extend the session.
+        access_token = user.encode_auth_token(user.id, expires_at=expires_at, issued_at=payload["iat"])
+        refresh_token = user.encode_auth_token(user.id, expires_at=expires_at, issued_at=payload["iat"])
 
         response_object = {
             "access_token": access_token.decode() if isinstance(access_token, bytes) else access_token,
             "refresh_token": refresh_token.decode() if isinstance(refresh_token, bytes) else refresh_token,
         }
         return response_object, 200
+
+
+class Logout(Resource):
+    def post(self):
+        user_id = getattr(g, "user_id", None)
+        if not user_id:
+            auth_namespace.abort(401, "Token required")
+
+        try:
+            revoke_user_tokens(user_id)
+        except RevocationUnavailable:
+            auth_namespace.abort(503, "Logout could not be completed. Please retry.")
+        return {"message": "Logged out"}, 200
 
 class Status(Resource):
     @auth_namespace.marshal_with(user)
@@ -134,4 +163,5 @@ class Status(Resource):
 auth_namespace.add_resource(Register, "/register")
 auth_namespace.add_resource(Login, "/login")
 auth_namespace.add_resource(Refresh, "/refresh")
+auth_namespace.add_resource(Logout, "/logout")
 auth_namespace.add_resource(Status, "/status")

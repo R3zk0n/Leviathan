@@ -5,7 +5,8 @@ import logging
 import glob
 import hashlib
 
-from .container_client import ContainerClient
+from .container_client import ContainerClient, LOCAL_UPLOADS, SCANS_ROOT
+from .safety import validate_apk_name, file_sha256, rule_path, load_secret_findings
 # Only the name constants are used here now — the decompiler backends
 # themselves live in the engine worker image (Services/Engine/worker/), reached
 # via the engine.decompile task.
@@ -515,9 +516,9 @@ class EngineService:
             )
         return chosen
 
-    def kill_appshark_processes(self):
-        """Kill running Appshark Java processes; returns the number killed."""
-        return self.containers.pkill("java.*AppShark")
+    def kill_appshark_processes(self, scan_guid):
+        """Cancel the process owned by one validated scan."""
+        return self.containers.cancel_scan(scan_guid)
 
     def create_app_output_directory(self, filename):
         settings = self.get_settings()
@@ -661,14 +662,16 @@ class EngineService:
             # Always use the base rules path for saving, not settings.rulePath
             # This prevents double nesting when settings.rulePath contains a subdirectory
             base_rule_path = '/appshark_engine/appshark/config/rules'
-            full_path = os.path.join(base_rule_path, rule_name)
+            full_path = rule_path(rule_name)
 
             # Ensure the parent directory of the file exists (handles subdirectories with spaces)
             parent_dir = os.path.dirname(full_path)
             self.create_directory(parent_dir)
 
             # Write the content to the file using the container
-            self.write_file_content(full_path, content)
+            result = self.containers._send("engine.write_file", [full_path, content, "rules"])
+            if result.get("status") != "ok":
+                raise RuntimeError("Engine rejected rule write")
 
             return {"success": True, "message": f"Rule '{rule_name}' saved successfully"}
         except Exception as e:
@@ -710,12 +713,19 @@ class EngineService:
 
     def read_decompiler_marker(self, file_name):
         """Return the parsed ``.decompiler`` marker dict for a decompiled app, or None."""
+        validate_apk_name(file_name)
         path = f"/tmp/decompiled/{file_name}/.decompiler"
         try:
-            return json.loads(self.containers.read_file(path))
-        except FileNotFoundError:
+            marker = json.loads(self.containers.read_file(path))
+            input_path = os.path.realpath(os.path.join(LOCAL_UPLOADS, file_name))
+            if os.path.dirname(input_path) != os.path.realpath(LOCAL_UPLOADS):
+                return None
+            if marker.get("input_sha256") != file_sha256(input_path):
+                return None
+            return marker
+        except OSError:
             return None
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             logger.warning(f"Invalid decompiler marker JSON at {path}")
             return None
 
@@ -735,6 +745,7 @@ class EngineService:
 
         Returns the decompiled root path (/tmp/decompiled/<file>) on success.
         """
+        validate_apk_name(file_name)
         resolved_engine = (engine or DEFAULT_DECOMPILER).strip().lower()
         if resolved_engine not in DECOMPILERS:
             raise ValueError(
@@ -917,110 +928,22 @@ class EngineService:
             return []
 
     def scan_secrets(self, filename: str) -> dict:
-        """
-        Scan decompiled APK files for secrets using TruffleHog in the engine container
-        """
+        """Return all structured findings only after a complete successful scan."""
         try:
-            logger.info(f"Starting secret scan for {filename}")
+            validate_apk_name(filename)
             decompiled_path = f"/tmp/decompiled/{filename}"
-
-            # Check the decompiled tree exists inside the engine container.
-            # (Was file_exists() on a directory path — is_dir is what's meant.)
             if not self.containers.is_dir(decompiled_path):
-                logger.error(f"Directory {decompiled_path} not found in engine container")
-                return {
-                    'status': 'error',
-                    'message': f"Decompiled directory not found in engine container: {decompiled_path}"
-                }
-
-
-            # Run TruffleHog on the engine.tools queue, so it can proceed while
-            # a scan occupies engine.scan.
-            logger.info("Dispatching TruffleHog scan to the engine worker")
+                return {"status": "error", "message": "Decompiled directory not found"}
             result = self.containers._send(
-                "engine.trufflehog", [decompiled_path], timeout=1800
+                "engine.trufflehog", [decompiled_path], timeout=2400
             )
-            exit_code = result.get("exit_code", 1)
-            output = result.get("output", "")
-
-            logger.info(f"TruffleHog scan completed with exit code: {exit_code}")
-            decoded_output = output.decode() if isinstance(output, bytes) else output
-            logger.info(f"Decoded Output: {decoded_output}")
-
-            # Process findings
-            findings = []
-
-            for line in decoded_output.split('\n'):
-                if not line.strip():
-                    continue
-
-                try:
-                    data = json.loads(line)
-
-                    # Skip log messages with 'level' key
-                    if 'level' in data:
-                        continue
-
-                    # Process only actual findings (with SourceMetadata)
-                    if 'SourceMetadata' in data:
-                        source_metadata = data.get('SourceMetadata', {}).get('Data', {}).get('Filesystem', {})
-
-                        # Get raw value and check if it should be excluded
-                        raw_value = data.get('Raw', '')
-
-                        # Only process if raw_value exists
-                        if raw_value:
-                            file_path = source_metadata.get('file', '')
-                            if file_path.startswith(decompiled_path):
-                                file_path = file_path[len(decompiled_path):].lstrip('/')
-
-                            findings.append({
-                                'type': data.get('DetectorName'),
-                                'description': data.get('DetectorDescription'),
-                                'value': data.get('Redacted', raw_value),  # Use redacted value if available
-                                'raw_value': raw_value,
-                                'file': file_path,
-                                'line': source_metadata.get('line'),
-                                'source_name': data.get('SourceName'),
-                                'detector_type': data.get('DetectorType'),
-                                'detector_name': data.get('DetectorName'),
-                                'decoder_name': data.get('DecoderName'),
-                                'verified': data.get('Verified', False),
-                                'verification_error': data.get('VerificationError'),
-                                'verification_cached': data.get('VerificationFromCache', False)
-                            })
-
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse JSON line: {e}")
-                    continue
-                except Exception as e:
-                    logger.warning(f"Error processing finding: {str(e)}")
-                    continue
-
-            logger.info(f"Found {len(findings)} potential secrets")
-
-            if findings:
-                logger.info("Found secrets:")
-                for finding in findings:
-                    logger.info(f"- Type: {finding['type']}")
-                    logger.info(f"  File: {finding['file']}")
-                    logger.info(f"  Line: {finding['line']}")
-                    # Use raw_value instead of Raw since that's what we stored
-                    logger.info(f"  Raw Value: {finding['raw_value']}")  # Changed from 'Raw' to 'raw_value'
-                    logger.info(f"  Verified: {finding['verified']}")
-
-
-            return {
-                'status': 'success',
-                'findings': findings
-            }
-
-        except Exception as e:
-            logger.error(f"Error in secret scan: {str(e)}", exc_info=True)
-            return {
-                'status': 'error',
-                'message': str(e)
-            }
+            findings = load_secret_findings(result, decompiled_path, SCANS_ROOT)
+            logger.info("Secret scan completed: %d findings", len(findings))
+            return {"status": "success", "findings": findings}
+        except Exception:
+            # No raw tool output or secret values belong in application logs.
+            logger.warning("Secret scan failed or produced incomplete results")
+            return {"status": "error", "message": "Secret scan failed or produced incomplete results"}
 
     def get_directories(self, base_path='/appshark_engine/appshark/config/rules'):
         """Get all directories in the rules folder, including subdirectories."""
@@ -1215,4 +1138,3 @@ class EngineService:
         except Exception as e:
             logger.error(f"Error in get_vulnerability_details_path: {str(e)}")
             raise
-

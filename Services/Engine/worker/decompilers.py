@@ -14,6 +14,7 @@ every frontend Java fetch assume that ``sources/`` tree. JADX writes it
 natively; Vineflower is normalised into it here.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -61,6 +62,35 @@ def _vineflower_re_flags():
 OUTPUT_TAIL_CHARS = 8000
 
 
+def validate_file_name(file_name):
+    if (not isinstance(file_name, str) or not file_name
+            or file_name in (".", "..")
+            or any(c in file_name for c in ("/", "\\", ":", "\x00"))
+            or any(ord(c) < 32 for c in file_name)
+            or not file_name.lower().endswith(".apk")):
+        raise ValueError("Expected an uploaded APK basename")
+    return file_name
+
+
+def strict_child(root, *parts):
+    root = os.path.realpath(root)
+    candidate = os.path.abspath(os.path.join(root, *parts))
+    path = os.path.realpath(candidate)
+    if path != candidate:
+        raise ValueError("Artifact paths must not contain symbolic links")
+    if path == root or os.path.commonpath((root, path)) != root:
+        raise ValueError("Artifact path is outside its permitted root")
+    return path
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _run(argv, timeout=None):
     """Run argv with no shell; return (exit_code, output tail)."""
     logger.info("running: %s", " ".join(argv))
@@ -79,17 +109,17 @@ class Decompiler:
     name = "base"
 
     def __init__(self, file_name, uploads_dir=UPLOADS_DIR, decompiled_root=DECOMPILED_ROOT):
-        self.file_name = file_name
+        self.file_name = validate_file_name(file_name)
         self.uploads_dir = uploads_dir.rstrip("/")
         self.decompiled_root = decompiled_root.rstrip("/")
 
     @property
     def input_path(self):
-        return os.path.join(self.uploads_dir, self.file_name)
+        return strict_child(self.uploads_dir, self.file_name)
 
     @property
     def output_dir(self):
-        return os.path.join(self.decompiled_root, self.file_name)
+        return strict_child(self.decompiled_root, self.file_name)
 
     @property
     def sources_dir(self):
@@ -256,17 +286,18 @@ def get_decompiler(name, file_name, uploads_dir=UPLOADS_DIR, decompiled_root=DEC
 # --- marker file helpers (engine-aware cache) ---
 
 def marker_path(file_name, decompiled_root=DECOMPILED_ROOT):
-    return os.path.join(decompiled_root.rstrip("/"), file_name, MARKER_NAME)
+    return strict_child(decompiled_root, validate_file_name(file_name), MARKER_NAME)
 
 
 def write_marker(file_name, engine, version="", resources=False,
-                 decompiled_root=DECOMPILED_ROOT):
+                 decompiled_root=DECOMPILED_ROOT, input_sha256=None):
     """Write the .decompiler JSON marker into the output dir."""
     payload = {
         "engine": engine,
         "version": version or "",
         "resources": bool(resources),
         "decompiled_at": datetime.utcnow().isoformat() + "Z",
+        "input_sha256": input_sha256,
     }
     path = marker_path(file_name, decompiled_root)
     try:

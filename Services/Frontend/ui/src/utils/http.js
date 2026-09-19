@@ -68,6 +68,17 @@ function routeIosRequest (config) {
 
 const ACCESS_TOKEN_KEY = 'access_token'
 const REFRESH_TOKEN_KEY = 'refresh_token'
+let authSessionVersion = 0
+
+export function getAuthSessionVersion () {
+  return authSessionVersion
+}
+
+function sessionChangedError () {
+  const error = new Error('Session changed while the request was running')
+  error.code = 'AUTH_SESSION_CHANGED'
+  return error
+}
 
 function getAccessToken () {
   try { return localStorage.getItem(ACCESS_TOKEN_KEY) || '' } catch { return '' }
@@ -79,9 +90,16 @@ function setTokens ({ accessToken, refreshToken }) {
   if (accessToken) localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
   if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
 }
-function clearTokens () {
+export function clearAuthSession () {
+  authSessionVersion += 1
+  refreshInFlight = null
   localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
+  delete axios.defaults.headers.common.Authorization
+  delete axios.defaults.headers.common.authorization
+  delete http.defaults.headers.common.Authorization
+  delete http.defaults.headers.common.authorization
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('leviathan:logout'))
 }
 
 // Single in-flight refresh promise so concurrent 401s don't all hit /auth/refresh.
@@ -91,11 +109,15 @@ function refreshAccessToken () {
   if (refreshInFlight) return refreshInFlight
   const refreshToken = getRefreshToken()
   if (!refreshToken) return Promise.reject(new Error('no_refresh_token'))
+  const sessionVersion = authSessionVersion
 
-  // Use a bare axios call to avoid recursion into the interceptors.
-  refreshInFlight = axios
-    .post(`${BASE_URL}/auth/refresh`, { refresh_token: refreshToken })
+  // A separate instance really has no auth/refresh interceptors or stale defaults.
+  const pending = refreshHttp
+    .post('/auth/refresh', { refresh_token: refreshToken })
     .then(resp => {
+      if (sessionVersion !== authSessionVersion || refreshToken !== getRefreshToken()) {
+        throw sessionChangedError()
+      }
       const accessToken = resp?.data?.access_token
       const newRefreshToken = resp?.data?.refresh_token
       if (!accessToken) throw new Error('refresh_no_access_token')
@@ -103,10 +125,11 @@ function refreshAccessToken () {
       return accessToken
     })
     .finally(() => {
-      refreshInFlight = null
+      if (refreshInFlight === pending) refreshInFlight = null
     })
 
-  return refreshInFlight
+  refreshInFlight = pending
+  return pending
 }
 
 // The shared instance. Most code should import this rather than plain axios.
@@ -115,24 +138,28 @@ const http = axios.create({
   // 30s default; Frida REPL/long polls should set their own override.
   timeout: 30000,
 })
+const refreshHttp = axios.create({ baseURL: BASE_URL, timeout: 30000 })
 
 function attachAuthHeader (config) {
   // Redirect /ios and /disas to the ios-analysis origin before auth is attached
   // (the header is origin-agnostic, so order only matters for correctness of url).
   routeIosRequest(config)
-  const token = getAccessToken()
+  // Only explicit logout may carry the captured token after local cleanup.
+  const token = config._logoutToken || getAccessToken()
+  config._authSessionVersion = authSessionVersion
+  config.headers = config.headers || {}
   if (token) {
-    config.headers = config.headers || {}
-    if (!config.headers.Authorization) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
+    config.headers.Authorization = `Bearer ${token}`
+  } else {
+    delete config.headers.Authorization
+    delete config.headers.authorization
   }
   return config
 }
 
 function isAuthEndpoint (url = '') {
   // Don't try to refresh on the auth endpoints themselves.
-  return /\/auth\/(login|refresh|register)\b/.test(url)
+  return /\/auth\/(login|refresh|register|logout)\b/.test(url)
 }
 
 function buildResponseInterceptor (router, store) {
@@ -145,9 +172,11 @@ function buildResponseInterceptor (router, store) {
 
     // Don't loop on auth endpoints, and only retry once per request.
     if (status === 401 && !original._retried && !isAuthEndpoint(original.url || '')) {
+      if (original._authSessionVersion !== authSessionVersion) return Promise.reject(error)
       original._retried = true
       try {
         const newToken = await refreshAccessToken()
+        if (original._authSessionVersion !== authSessionVersion) throw sessionChangedError()
         // Push token into Vuex if available so other consumers stay in sync.
         if (store?.commit) {
           try { store.commit('setAccessToken', newToken) } catch { /* non-fatal */ }
@@ -156,11 +185,14 @@ function buildResponseInterceptor (router, store) {
         original.headers.Authorization = `Bearer ${newToken}`
         return http(original)
       } catch (refreshErr) {
+        // A response for a previous login must not restore or clear a new session.
+        if (refreshErr.code === 'AUTH_SESSION_CHANGED' || original._authSessionVersion !== authSessionVersion) {
+          return Promise.reject(refreshErr)
+        }
         // Refresh failed → user genuinely needs to log in again.
-        clearTokens()
         if (store?.commit) {
           try { store.commit('clearAuthData') } catch { /* non-fatal */ }
-        }
+        } else clearAuthSession()
         if (router) {
           const current = router.currentRoute?.value
           const redirect = current?.fullPath && current.fullPath !== '/login'

@@ -125,6 +125,7 @@
 </template>
 
 <script>
+import EventSource from '@/utils/authenticatedEventSource'
 import { ref, onMounted, onUnmounted, reactive, watch, nextTick, computed } from 'vue';
 
 export default {

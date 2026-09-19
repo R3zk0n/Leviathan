@@ -164,6 +164,13 @@ def _check_remote_reachable(host, port, timeout=5):
         )
 
 
+def require_mobile_device(device):
+    """Never expose the analysis server as an instrumentation target."""
+    if getattr(device, "type", None) not in ("usb", "remote"):
+        raise PermissionError("Only USB and remote mobile devices are permitted")
+    return device
+
+
 def resolve_device(device_id, timeout=None):
     """Resolve a frida device by id, transparently (re)connecting a remote
     'socket@host:port' device if this worker's DeviceManager hasn't registered it
@@ -174,15 +181,17 @@ def resolve_device(device_id, timeout=None):
     Raises the underlying frida error if a non-remote id can't be resolved, or a
     RuntimeError if a remote host is unreachable within the connect timeout.
     """
+    if device_id == "local":
+        raise PermissionError("The analysis server cannot be used as a target device")
     try:
         if timeout is not None:
-            return frida.get_device(device_id, timeout=timeout)
-        return frida.get_device(device_id)
+            return require_mobile_device(frida.get_device(device_id, timeout=timeout))
+        return require_mobile_device(frida.get_device(device_id))
     except frida.InvalidArgumentError:
         if device_id and device_id.startswith("socket@"):
             host, port = device_id.split("@", 1)[1].split(":")
             _check_remote_reachable(host, int(port))
-            return frida.get_device_manager().add_remote_device(f"{host}:{port}")
+            return require_mobile_device(frida.get_device_manager().add_remote_device(f"{host}:{port}"))
         raise
 
 

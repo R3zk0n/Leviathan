@@ -8,7 +8,7 @@ from project.api.frida.helpers import *  # noqa: F401,F403  (helper functions)
 class FridaProcessInfo(Resource):
     def get(self, device_id, pid):
         try:
-            device = frida.get_device_manager().get_device(device_id)
+            device = require_mobile_device(frida.get_device_manager().get_device(device_id))
 
             # Get all processes and find the one matching the PID
             processes = device.enumerate_processes(scope="metadata")
@@ -197,7 +197,7 @@ class FridaAttach(Resource):
             if pid is None:
                 return {"status": "error", "message": "Missing pid"}, 400
 
-            device = frida.get_device_manager().get_device(device_id)
+            device = require_mobile_device(frida.get_device_manager().get_device(device_id))
             session = device.attach(int(pid))
             if not session:
                 return {
@@ -235,7 +235,7 @@ class FridaResume(Resource):
             # Resolve the device, reconnecting a remote (socket@host:port) one if this
             # worker hasn't seen it yet (mirrors the spawn/attach paths).
             try:
-                device = frida.get_device(device_id)
+                device = require_mobile_device(frida.get_device(device_id))
             except frida.InvalidArgumentError:
                 if device_id.startswith("socket@"):
                     host, port = device_id.split("@")[1].split(":")
@@ -276,7 +276,7 @@ class FridaList(Resource):
                     "type": device.type,
                     "os": self.get_device_os(device),
                 }
-                for device in devices
+                for device in devices if device.type in ("usb", "remote")
             ]
             # print(f"Device List {device_list}")
             return {"status": "success", "devices": device_list}
@@ -349,7 +349,7 @@ class FridaApplications(Resource):
     def get(self, device_id):
         try:
             device_manager = frida.get_device_manager()
-            device = device_manager.get_device(device_id)
+            device = require_mobile_device(device_manager.get_device(device_id))
             # We use the full scope so we can get all the objects in the structure that frida returns including the
             # Icons.
             processes = device.enumerate_processes(scope="full")
@@ -420,7 +420,7 @@ class FridaDetach(Resource):
 
             try:
                 if device_id:
-                    device = device_manager.get_device(device_id)
+                    device = require_mobile_device(device_manager.get_device(device_id))
                 else:
                     # Find the device by host:port
                     device = next(

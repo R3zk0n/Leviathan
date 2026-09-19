@@ -44,7 +44,9 @@ from project.api.database.models import (
     AndroidInfo, AndroidActivity, AndroidService, AndroidReceiver, AndroidProvider,
     ActivityAction, ActivityCategory, ActivityScheme, ActivityIntentFilter,
     ServiceAction, ServiceCategory, ServiceScheme,
-    ReceiverAction, ReceiverCategory, ApkDetails, AndroidSourceCode,
+    ReceiverAction, ReceiverCategory, ReceiverScheme,
+    ProviderAction, ProviderCategory, ProviderScheme, ProviderMetadata,
+    ApkDetails, AndroidSourceCode, AppSecret, ScanTask,
     AppsharkScan, AppsharkSecurityIssue, AppsharkVulnerability,
 )
 

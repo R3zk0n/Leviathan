@@ -358,6 +358,7 @@
 </template>
 
 <script setup>
+import EventSource from '@/utils/authenticatedEventSource'
 import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({

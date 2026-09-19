@@ -1,4 +1,5 @@
 // useCryptoMonitor.js - Optimized version with performance improvements
+import EventSource from '@/utils/authenticatedEventSource'
 
 import { ref, reactive, nextTick, shallowRef, computed } from 'vue'
 import axios from 'axios'

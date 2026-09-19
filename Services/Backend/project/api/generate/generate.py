@@ -38,7 +38,8 @@ from werkzeug.utils import secure_filename
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, inspect, func, and_, case
 from androguard.core.apk import APK
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from project.report_html import sanitize_report_html
 from rich.console import Console
 from rich import inspect as rich_inspect
 import matplotlib.pyplot as plt
@@ -73,7 +74,7 @@ logger = logging.getLogger(__name__)
 generate_namespace = Namespace("generate", description="Report Generation API")
 current_dir = os.path.dirname(os.path.abspath(__file__))
 template_dir = os.path.join(current_dir, 'templates')
-env = Environment(loader=FileSystemLoader(template_dir))
+env = Environment(loader=FileSystemLoader(template_dir), autoescape=select_autoescape(["html", "xml"]))
 
 
 def load_embedded_resources():
@@ -141,7 +142,7 @@ def read_vulnerability_html_content(html_path):
         # Check if file exists in shared volume
         if os.path.exists(safe_path) and safe_path.endswith('.html'):
             with open(safe_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                content = sanitize_report_html(f.read())
 
             # Add custom CSS to make the HTML look better when embedded
             custom_css = """
@@ -1035,7 +1036,7 @@ class VulnerabilityHTML(Resource):
             if os.path.exists(safe_path) and safe_path.endswith('.html'):
                 try:
                     with open(safe_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                        content = sanitize_report_html(f.read())
 
                     # Inject custom CSS to make the HTML look better in the modal
                     custom_css = """

@@ -23,6 +23,22 @@ admin = Admin(
 )
 
 
+def _validate_secret(name, value, required=False):
+    """Reject missing required secrets and examples; never include values in errors."""
+    if value is None or value == "":
+        if not required:
+            return None
+        raise RuntimeError(f"{name} is required. Generate a long random secret.")
+    normalized = value.strip().lower().replace("_", "-")
+    if (
+        len(value.strip()) < 32
+        or normalized.startswith(("change-me", "changeme", "replace-me", "your-secret"))
+        or normalized in {"secret", "password", "development", "dev-secret-key"}
+    ):
+        raise RuntimeError(f"{name} must be a random secret of at least 32 characters, not an example value.")
+    return value
+
+
 def create_app(script_info=None):
     # instantiate the app
     app = Flask(__name__)
@@ -31,13 +47,12 @@ def create_app(script_info=None):
     app_settings = os.getenv("APP_SETTINGS")
     app.config.from_object(app_settings)
 
-    # Tokens are signed with SECRET_KEY (see User.encode_auth_token). Refuse to
-    # boot without one rather than silently issuing tokens signed with `None`.
-    if not app.config.get("SECRET_KEY"):
-        raise RuntimeError(
-            "SECRET_KEY is not set. Refusing to start: tokens would be signed "
-            "with an empty key. Set SECRET_KEY in the environment."
-        )
+    app.config["SECRET_KEY"] = _validate_secret(
+        "SECRET_KEY", app.config.get("SECRET_KEY"), required=True
+    )
+    app.config["INTERNAL_SERVICE_TOKEN"] = _validate_secret(
+        "INTERNAL_SERVICE_TOKEN", os.getenv("INTERNAL_SERVICE_TOKEN")
+    )
 
     # JWT Configuration. The app mints/verifies tokens via User.encode/decode
     # (HS256 over SECRET_KEY), so JWT_SECRET_KEY defaults to SECRET_KEY to keep

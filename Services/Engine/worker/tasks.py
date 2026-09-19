@@ -15,6 +15,10 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+from uuid import uuid4
+
+from worker import process_control
 
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -100,6 +104,39 @@ def _run(argv, timeout=None, cwd=APPSHARK_HOME):
     return proc.returncode, (proc.stdout or "")[-OUTPUT_TAIL_CHARS:]
 
 
+class ScanCancelled(Exception):
+    pass
+
+
+def _run_scan_process(argv, run_id, timeout):
+    """Launch one owned process group; cancellation never searches by name."""
+    proc = None
+    registration = None
+    try:
+        with tempfile.TemporaryFile() as output:
+            with process_control.locked_run(run_id) as prefix:
+                if os.path.exists(prefix + ".cancelled"):
+                    raise ScanCancelled()
+                if os.path.exists(prefix + ".json"):
+                    with open(prefix + ".json", encoding="utf-8") as fh:
+                        previous = json.load(fh)
+                    if process_control.process_identity(previous["pid"]) == previous["start_time"]:
+                        raise RuntimeError("This scan already has an active process")
+                proc = subprocess.Popen(
+                    argv, cwd=APPSHARK_HOME, stdout=output,
+                    stderr=subprocess.STDOUT, start_new_session=True,
+                )
+                registration = process_control.register_process(prefix, proc)
+            proc.wait(timeout=timeout)
+            output.seek(max(0, output.tell() - OUTPUT_TAIL_CHARS))
+            tail = output.read().decode("utf-8", errors="replace")
+            return proc.returncode, tail
+    finally:
+        process_control.kill_owned_process(proc)
+        if registration is not None:
+            process_control.unregister_process(run_id, registration)
+
+
 def _resolve_scan_root(settings: dict) -> str:
     out = (settings or {}).get("out") or "Scans"
     if os.path.isabs(out):
@@ -130,7 +167,7 @@ def run_appshark(self, settings, scan_guid=None):
     multi-MB payload through the result backend would bloat Redis.
     """
     settings = dict(settings or {})
-    scan_root = _resolve_scan_root(settings)
+    scan_root = _confine(_resolve_scan_root(settings), (SCANS_ROOT,))
     apk_path = settings.get("apkPath", "")
     app_identifier = os.path.splitext(os.path.basename(apk_path))[0]
 
@@ -156,7 +193,8 @@ def run_appshark(self, settings, scan_guid=None):
     # Key the config by scan id. The previous fixed /tmp/config/scan_settings.json
     # was clobbered by any second scan, so correctness depended on strict
     # serialisation of the whole pipeline.
-    run_id = scan_guid or self.request.id or app_identifier
+    run_id = scan_guid or self.request.id
+    process_control.run_key(run_id)
     config_file = _confine(
         os.path.join(RUN_CONFIG_ROOT, f"scan_settings.{run_id}.json"), WRITABLE_ROOTS
     )
@@ -188,10 +226,12 @@ def run_appshark(self, settings, scan_guid=None):
     ]
 
     try:
-        exit_code, output = _run(argv, timeout=SCAN_TIME_LIMIT)
+        exit_code, output = _run_scan_process(argv, run_id, SCAN_TIME_LIMIT)
+    except ScanCancelled:
+        return {"status": "error", "reason": "cancelled", "exit_code": -1,
+                "scan_root": scan_root, "app_identifier": app_identifier}
     except SoftTimeLimitExceeded:
         logger.error("scan %s exceeded soft time limit; killing AppShark", run_id)
-        subprocess.run(["pkill", "-9", "-f", "java.*AppShark"], check=False)
         return {
             "status": "error",
             "reason": "soft_time_limit_exceeded",
@@ -200,7 +240,6 @@ def run_appshark(self, settings, scan_guid=None):
             "exit_code": -1,
         }
     except subprocess.TimeoutExpired:
-        subprocess.run(["pkill", "-9", "-f", "java.*AppShark"], check=False)
         return {
             "status": "error",
             "reason": "timeout",
@@ -296,6 +335,9 @@ def decompile(file_name, engine=None, force=False, resources=False):
 
     want_resources = bool(resources)
     backend = d.get_decompiler(resolved, file_name)
+    # Validate both paths and the input before any recursive removal.
+    output_dir = d.strict_child(DECOMPILED_ROOT, file_name)
+    input_hash = d.file_sha256(backend.input_path)
 
     # Cache reuse: same engine, same resources flag, not forced, sources present.
     if not force:
@@ -303,6 +345,7 @@ def decompile(file_name, engine=None, force=False, resources=False):
         if (marker
                 and marker.get("engine") == resolved
                 and bool(marker.get("resources")) == want_resources
+                and marker.get("input_sha256") == input_hash
                 and backend._sources_nonempty()):
             logger.info("reusing existing %s decompilation for %s", resolved, file_name)
             return {
@@ -316,8 +359,8 @@ def decompile(file_name, engine=None, force=False, resources=False):
 
     # Force (or engine switch) means the old tree must go first, or the two
     # engines' output would be interleaved in one sources/ dir.
-    if force or os.path.isdir(backend.output_dir):
-        shutil.rmtree(backend.output_dir, ignore_errors=True)
+    if os.path.isdir(output_dir):
+        shutil.rmtree(output_dir)
 
     ok, output = backend.run(resources=want_resources, timeout=TOOL_TIME_LIMIT)
     if not ok:
@@ -329,7 +372,10 @@ def decompile(file_name, engine=None, force=False, resources=False):
         }
 
     version = _decompiler_version(resolved)
-    d.write_marker(file_name, resolved, version=version, resources=want_resources)
+    if d.file_sha256(backend.input_path) != input_hash:
+        return {"status": "error", "reason": "input_changed", "engine": resolved}
+    d.write_marker(file_name, resolved, version=version, resources=want_resources,
+                   input_sha256=input_hash)
 
     return {
         "status": "ok",
@@ -382,18 +428,9 @@ def class_index(file_name):
     name="engine.kill_appshark",
     time_limit=60,
 )
-def kill_appshark():
-    """Kill running AppShark JVMs. Lives on engine.control so a cancel never
-    queues behind the scan it is cancelling."""
-    proc = subprocess.run(
-        ["pgrep", "-f", "java.*AppShark"],
-        stdout=subprocess.PIPE, text=True, check=False,
-    )
-    pids = [p for p in (proc.stdout or "").split() if p.isdigit()]
-    if not pids:
-        return {"status": "ok", "killed": 0}
-    subprocess.run(["kill", "-9"] + pids, check=False)
-    return {"status": "ok", "killed": len(pids)}
+def kill_appshark(scan_guid):
+    """Cancel only the process group registered to this scan GUID."""
+    return {"status": "ok", "killed": process_control.cancel_scan(scan_guid)}
 
 
 @celery.task(
@@ -418,9 +455,49 @@ def trufflehog(target_path, extra_args=None):
         if arg not in TRUFFLEHOG_ALLOWED_ARGS:
             raise ValueError(f"rejected trufflehog arg: {arg!r}")
         argv.append(arg)
-    exit_code, output = _run(argv, timeout=TOOL_TIME_LIMIT)
-    return {"status": "ok" if exit_code == 0 else "error",
-            "exit_code": exit_code, "output": output}
+    # Findings are data, never diagnostic tails. Keep them off Redis and retain
+    # every complete record on the shared scans volume.
+    result_dir = _confine(os.path.join(SCANS_ROOT, ".secret-results"), (SCANS_ROOT,))
+    os.makedirs(result_dir, mode=0o700, exist_ok=True)
+    result_path = _confine(os.path.join(result_dir, uuid4().hex + ".jsonl"), (result_dir,))
+    proc = None
+    complete = False
+    try:
+        with open(result_path, "xb") as findings, tempfile.TemporaryFile() as diagnostics:
+            os.chmod(result_path, 0o600)
+            proc = subprocess.Popen(
+                argv, cwd=APPSHARK_HOME, stdout=findings, stderr=diagnostics,
+                start_new_session=True,
+            )
+            exit_code = proc.wait(timeout=TOOL_TIME_LIMIT)
+        if exit_code != 0:
+            return {"status": "error", "reason": "nonzero_exit", "exit_code": exit_code}
+        count = 0
+        with open(result_path, encoding="utf-8") as findings:
+            for line in findings:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError("Invalid finding record")
+                if "SourceMetadata" in record:
+                    count += 1
+                elif "level" not in record:
+                    raise ValueError("Unexpected finding record")
+        complete = True
+        return {"status": "ok", "exit_code": 0, "complete": True,
+                "findings_path": result_path, "finding_count": count}
+    except (subprocess.TimeoutExpired, SoftTimeLimitExceeded):
+        return {"status": "error", "reason": "timeout", "complete": False}
+    except (ValueError, UnicodeError):
+        return {"status": "error", "reason": "invalid_findings", "complete": False}
+    finally:
+        process_control.kill_owned_process(proc)
+        if not complete:
+            try:
+                os.remove(result_path)
+            except FileNotFoundError:
+                pass
 
 
 # ── Engine-local filesystem access ──────────────────────────────────────────
@@ -442,14 +519,17 @@ def read_file(path):
 
 
 @celery.task(name="engine.write_file", time_limit=120)
-def write_file(path, content):
+def write_file(path, content, scope=None):
     """Write a text file to an engine-local path.
 
     NOTE: config/ is baked into the image (COPY in the Dockerfile), not a
     volume, so writes there land in the container's writable layer and are lost
     on rebuild. Pre-existing behaviour; fixing it needs a config volume.
     """
-    resolved = _confine(path, WRITABLE_ROOTS)
+    roots = (os.path.join(CONFIG_ROOT, "rules"),) if scope == "rules" else WRITABLE_ROOTS
+    resolved = _confine(path, roots)
+    if scope == "rules" and resolved == os.path.realpath(roots[0]):
+        raise ValueError("A rule file is required")
     os.makedirs(os.path.dirname(resolved), exist_ok=True)
     with open(resolved, "w") as fh:
         fh.write(content)

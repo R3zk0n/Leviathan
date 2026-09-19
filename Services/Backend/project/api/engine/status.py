@@ -172,59 +172,44 @@ class EngineScanStatusByGuid(Resource):
 class EngineScanStop(Resource):
     def post(self, task_id):
         try:
-            logger.info(f"Stopping scan task: {task_id}")
+            body = request.get_json(silent=True) or {}
+            identifier_type = body.get("identifier_type", "celery")
+            if identifier_type not in ("guid", "celery"):
+                return {"status": "error", "message": "Invalid scan identifier type"}, 400
+            lookup = {"guid" if identifier_type == "guid" else "celery_task_id": task_id}
+            scan_task = ScanTask.query.filter_by(**lookup).with_for_update().first()
+            if scan_task is None:
+                db.session.rollback()
+                return {"status": "error", "message": "Scan task not found"}, 404
+            if scan_task.status not in ("WAITING", "PROCESSING"):
+                db.session.rollback()
+                return {"status": "warning", "message": "Scan is not active"}, 409
 
-            # Revoke the task - terminate=True will kill the worker process
-            # terminate=False will just prevent the task from starting if it's queued
-            from celery.result import AsyncResult
-            task = AsyncResult(task_id)
-
-            # Check if task exists and is running
-            if task.state in ['PENDING', 'STARTED', 'PROGRESS']:
-                # Revoke with terminate to kill running task
-                task.revoke(terminate=True, signal='SIGTERM')
-
-                # Kill the actual Java/Appshark process in the engine container
-                killed_count = engine_service.kill_appshark_processes()
-                logger.info(f"Killed {killed_count} Appshark process(es) in engine container")
-
-                # Update ScanTask status in database
-                scan_task = ScanTask.query.filter_by(celery_task_id=task_id).first()
-                filename_stopped = None
-                if scan_task:
-                    scan_task.status = 'ERROR'
-                    scan_task.error_message = 'Scan was stopped by user'
-                    scan_task.scan_completed_at = datetime.utcnow()
-                    filename_stopped = scan_task.filename
-                    db.session.commit()
-                    logger.info(f"Updated ScanTask {scan_task.guid} status to ERROR (stopped)")
-
-                    # Start the next queued scan since this one was stopped
-                    start_next_queued_scan()
-
-                logger.info(f"Task {task_id} revoked successfully")
-                return {
-                    'status': 'success',
-                    'message': 'Scan stopped successfully',
-                    'task_id': task_id,
-                    'filename': filename_stopped,
-                    'processes_killed': killed_count
-                }, 200
-            else:
-                logger.warning(f"Task {task_id} is not running (state: {task.state})")
-                return {
-                    'status': 'warning',
-                    'message': f'Task is not running (current state: {task.state})',
-                    'task_id': task_id
-                }, 200
-
-        except Exception as e:
-            logger.exception(f"Error stopping scan task {task_id}: {str(e)}")
+            # A WAITING row is locked against scheduler admission. PROCESSING
+            # also includes admitted jobs whose Celery dispatch has not finished:
+            # the engine cancellation marker prevents a later JVM launch.
+            killed_count = 0
+            if scan_task.status == "PROCESSING":
+                killed_count = engine_service.kill_appshark_processes(scan_task.guid)
+            if scan_task.celery_task_id:
+                from celery.result import AsyncResult
+                AsyncResult(scan_task.celery_task_id).revoke(terminate=False)
+            scan_task.status = "ERROR"
+            scan_task.error_message = "Scan was stopped by user"
+            scan_task.scan_completed_at = datetime.utcnow()
+            filename_stopped = scan_task.filename
+            scan_guid = scan_task.guid
+            db.session.commit()
+            start_next_queued_scan()
             return {
-                'status': 'error',
-                'message': f'Failed to stop scan: {str(e)}',
-                'task_id': task_id
-            }, 500
+                "status": "success", "message": "Scan stopped successfully",
+                "task_id": task_id, "scan_guid": scan_guid,
+                "filename": filename_stopped, "processes_killed": killed_count,
+            }, 200
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to cancel the selected scan")
+            return {"status": "error", "message": "Could not confirm scan cancellation"}, 503
 
 
 @engine_namespace.route('/backfill-component-status')

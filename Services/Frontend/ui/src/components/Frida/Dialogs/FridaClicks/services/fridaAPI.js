@@ -1,7 +1,8 @@
 // services/fridaAPI.js
+import EventSource from '@/utils/authenticatedEventSource'
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_APP_API_URL || '/api'
+const API_BASE_URL = import.meta.env.VITE_APP_API_URL || ''
 
 class FridaAPIService {
   constructor() {

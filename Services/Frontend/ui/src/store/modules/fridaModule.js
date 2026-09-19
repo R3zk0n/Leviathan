@@ -1,4 +1,5 @@
 // Services/Frontend/ui/src/store/modules/fridaModule.js
+import EventSource from '@/utils/authenticatedEventSource'
 import axios from 'axios';
 
 // Heartbeat interval handle (module-level so it survives across actions)

@@ -2,6 +2,7 @@
 
 from project.api.frida._shared import *  # noqa: F401,F403  (shared surface)
 from project.api.frida.helpers import *  # noqa: F401,F403  (helper functions)
+from project.api.frida.stream_auth import StreamAuthorization
 
 
 @frida_namespace.route("/bridges/<string:bridge_name>")
@@ -70,7 +71,7 @@ class FridaMonitorScript(Resource):
                 }, 400
 
             try:
-                device = frida.get_device_manager().get_device(device_id)
+                device = require_mobile_device(frida.get_device_manager().get_device(device_id))
             except frida.InvalidArgumentError:
                 if device_id.startswith("socket@"):
                     host, port = device_id.split("@")[1].split(":")
@@ -228,7 +229,7 @@ class FridaRunPersistentScript(Resource):
                 }, 400
 
             try:
-                device = frida.get_device_manager().get_device(device_id)
+                device = require_mobile_device(frida.get_device_manager().get_device(device_id))
             except frida.InvalidArgumentError:
                 if device_id.startswith("socket@"):
                     host, port = device_id.split("@")[1].split(":")
@@ -563,6 +564,7 @@ class FridaKillScript(Resource):
 @frida_namespace.route("/hooks/<session_id>")
 class FridaHooks(Resource):
     def get(self, session_id):
+        authorization = StreamAuthorization(request.headers.get("Authorization", ""))
         def event_stream():
             # Shared per-session queue: the REPL/agent message callbacks put()
             # output here keyed by session_id, and this SSE stream drains it. Create
@@ -581,12 +583,14 @@ class FridaHooks(Resource):
             yield "retry: 3000\n\n"
 
             try:
-                while True:
+                while authorization.valid():
                     try:
                         # Bounded wait so the generator wakes periodically instead of
                         # blocking a worker thread forever on an idle session.
                         message = queue.get(timeout=15)
                     except QueueEmpty:
+                        if not authorization.valid():
+                            return
                         # SSE comment line (ignored by the client). The write keeps
                         # proxies/browsers from culling an idle stream AND lets the
                         # server notice a disconnected client (-> GeneratorExit ->
@@ -594,6 +598,8 @@ class FridaHooks(Resource):
                         yield ": keepalive\n\n"
                         continue
 
+                    if not authorization.valid():
+                        return
                     # Send exactly what we received - no processing, no JSON wrapping
                     yield f"data: {json.dumps(message)}\n\n"
 

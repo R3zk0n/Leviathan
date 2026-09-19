@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue';
-import axios from 'axios';
-import { useStore } from 'vuex'; // Import useStore for Vuex
+import { useStore } from 'vuex';
+import { engineApi } from '@/services';
 
 const store = useStore(); // Initialize the store
 const jadxStatus = ref('');
@@ -12,9 +12,9 @@ const isDark = ref(store.state.isDark); // Use Vuex state for dark mode
 
 const checkJadxStatus = async () => {
   try {
-    const response = await axios.get('http://localhost:5001/engine/version');
-    jadxStatus.value = response.data.output;
-    snackbarMessage.value = `JADX Version: ${response.data.output}`;
+    const response = await engineApi.version();
+    jadxStatus.value = response.output;
+    snackbarMessage.value = `JADX Version: ${response.output}`;
     errorMessage.value = '';
     snackbar.value = true;
   } catch (error) {

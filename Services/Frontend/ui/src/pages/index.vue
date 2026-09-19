@@ -1599,29 +1599,34 @@ export default defineComponent({
       }
 
       try {
-        // Check if this is a GUID (queued scan) or a Celery task ID (running scan)
-        const isGuid = taskId.length > 36 || !taskId.includes('-');  // Simple heuristic
-
-        // Stop polling for this task/guid
-        if (this.scanPollingIntervals[taskId]) {
-          clearInterval(this.scanPollingIntervals[taskId]);
-          delete this.scanPollingIntervals[taskId];
+        // Resolve the identifier from the server record: queued GUIDs and Celery
+        // IDs are both UUIDs, so their string shapes cannot distinguish them.
+        const active = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan-tasks/active`);
+        const scan = active.data.active_scans.find(
+          entry => entry.filename === filename &&
+            (entry.guid === taskId || entry.celery_task_id === taskId)
+        );
+        if (!scan) {
+          this.showSnackbar('This scan is no longer active', 'warning');
+          return;
         }
-
-        // Only call backend stop for actual Celery tasks, not GUIDs
-        if (!isGuid) {
-          const result = await this.stopScan(taskId);
-
-          if (result.success) {
-            this.showSnackbar(`Scan stopped for ${filename}`, 'success');
-          } else {
-            this.showSnackbar(result.message || 'Failed to stop scan', 'error');
+        const response = await axios.post(
+          `${import.meta.env.VITE_APP_API_URL}/engine/scan/stop/${encodeURIComponent(scan.guid)}`,
+          { identifier_type: 'guid' }
+        );
+        if (response.data.status !== 'success') {
+          this.showSnackbar(response.data.message || 'Failed to stop scan', 'error');
+          return;
+        }
+        // Keep polling and local state intact until server cancellation succeeds.
+        for (const id of new Set([taskId, scan.guid, scan.celery_task_id].filter(Boolean))) {
+          if (this.scanPollingIntervals[id]) {
+            clearInterval(this.scanPollingIntervals[id]);
+            delete this.scanPollingIntervals[id];
           }
-        } else {
-          // For queued scans, just remove from store and clear polling
-          this.removeScan(taskId);
-          this.showSnackbar(`Queued scan removed for ${filename}`, 'success');
+          this.removeScan(id);
         }
+        this.showSnackbar(`Scan stopped for ${filename}`, 'success');
 
       } catch (error) {
         console.error('Error stopping scan:', error);
@@ -3023,4 +3028,3 @@ export default defineComponent({
   background-color: rgba(200, 200, 200, 0.55);
 }
 </style>
-

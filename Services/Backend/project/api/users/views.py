@@ -1,42 +1,58 @@
-import jwt
 from flask import request, g
-from flask_restx import Namespace, Resource, fields
-from project.api.users.models import User
-from project.api.users.services import get_current_user
+from flask_restx import Namespace, Resource
+from project.token_revoke import RevocationUnavailable
 
-
-from flask import jsonify
+from project.api.users.services import (
+    get_user_by_id,
+    update_user_profile,
+    change_user_password,
+)
 
 users_namespace = Namespace("users", description="User Operations")
+
+
+def _profile_payload(user):
+    return {
+        "username": user.username,
+        "email": user.email,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+    }
+
 
 @users_namespace.route("/profile")
 class UserProfile(Resource):
     def get(self):
-        current_user_id = g.user_id
-        try:
-            user_data = get_current_user(current_user_id)
-            if user_data:
-                # Return the data directly, not wrapped in a Response object
-                return {
-                    "username": user_data.get('username'),
-                    "email": user_data.get('email'),
-                    "created_at": user_data.get('created_at'),
-                    "updated_at": user_data.get('updated_at')
-                }
+        user = get_user_by_id(g.user_id)
+        if not user:
             return {"message": "User not found"}, 404
-        except Exception as e:
-            return {"message": str(e)}, 500
+        return _profile_payload(user)
 
     def put(self):
-        current_user_id = g.user_id
-        data = request.get_json()
+        data = request.get_json() or {}
         try:
-            updated_user = update_user_profile(current_user_id, data)
-            # Return the updated user data directly
-            return {
-                "username": updated_user.username,
-                "email": updated_user.email,
-                "updated_at": updated_user.updated_at
-            }
+            user = update_user_profile(
+                g.user_id,
+                data.get("username"),
+                data.get("email"),
+            )
+            return _profile_payload(user)
+        except ValueError as e:
+            return {"message": str(e)}, 400
+
+
+@users_namespace.route("/profile/password")
+class UserPassword(Resource):
+    def put(self):
+        data = request.get_json() or {}
+        try:
+            change_user_password(
+                g.user_id,
+                data.get("current_password"),
+                data.get("new_password"),
+            )
+            return {"message": "Password changed"}
+        except RevocationUnavailable:
+            return {"message": "Password was not changed: session service unavailable. Please retry."}, 503
         except ValueError as e:
             return {"message": str(e)}, 400

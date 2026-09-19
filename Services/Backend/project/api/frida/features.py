@@ -1,6 +1,7 @@
 """Feature execute/start/stop and feature-stream endpoints."""
 from project.api.frida._shared import *  # noqa: F401,F403  (shared surface)
 from project.api.frida.helpers import *  # noqa: F401,F403  (helper functions)
+from project.api.frida.stream_auth import StreamAuthorization
 
 
 @frida_namespace.route('/execute-with-agent')
@@ -264,17 +265,20 @@ class FridaStopFeature(Resource):
 @frida_namespace.route('/feature-stream/<session_id>/<platform>/<category>/<feature>')
 class FridaFeatureStream(Resource):
     def get(self, session_id, platform, category, feature):
+        authorization = StreamAuthorization(request.headers.get("Authorization", ""))
         def event_stream():
             queue_key = f"{session_id}_{platform}_{category}_{feature}"
             queue = Queue()
             hook_queues[queue_key] = queue
 
             try:
-                while True:
+                while authorization.valid():
                     # Use timeout so we can periodically check if the session is still alive
                     try:
                         message = queue.get(timeout=10)
                     except QueueEmpty:
+                        if not authorization.valid():
+                            return
                         # Queue.get timed out — check if session is still alive
                         if session_id not in active_scripts:
                             # Session gone (process crashed or unloaded)
@@ -287,6 +291,8 @@ class FridaFeatureStream(Resource):
                             return
                         continue
 
+                    if not authorization.valid():
+                        return
                     # Now message is a dict, so we JSON encode it here
                     yield f"data: {json.dumps(message)}\n\n"
 

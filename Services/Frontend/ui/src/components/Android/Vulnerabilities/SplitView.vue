@@ -63,7 +63,7 @@
               <span class="pane-title-hint">(drag the divider to resize)</span>
             </v-card-title>
             <v-card-text class="overflow-container">
-              <div class="vuln-content" v-html="vulnerabilityDetailsHtml"></div>
+              <SafeReportHtml :content="vulnerabilityDetailsHtml" />
             </v-card-text>
           </v-card>
         </div>
@@ -75,6 +75,7 @@
 </template>
 
 <script setup>
+import SafeReportHtml from '@/components/Common/SafeReportHtml.vue';
 import { defineProps, defineEmits, computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useStore } from 'vuex';
 import CodeViewer from '@/components/Android/CodeViewer.vue';

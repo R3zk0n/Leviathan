@@ -1,5 +1,8 @@
 """Parsing / analysis helpers for the audit endpoints."""
 from project.api.audit._shared import *  # noqa: F401,F403  (re-export shared surface)
+from project.api.audit.artifacts import (
+    ArtifactError, ArtifactConflict, artifact_path, apk_identity, unique_record,
+)
 
 
 UNKNOWN_COMPONENT_STATUS = {
@@ -126,93 +129,31 @@ def get_apk_package_name(file_path: str) -> Optional[str]:
 
 
 def find_android_info(identifier: str, skip_apk_analysis: bool = False) -> Optional[AndroidInfo]:
+    """Resolve an uploaded APK by package AND version, without fuzzy fallback.
+
+    The legacy skip flag remains accepted, but cannot skip identity checks for
+    an existing artifact. Bare package/display names must identify one row.
     """
-    Find AndroidInfo record with package name prioritization.
-
-    Args:
-        identifier: File name, package name, or app identifier
-        skip_apk_analysis: If True, won't attempt APK analysis
-
-    Returns:
-        AndroidInfo object if found, None otherwise
-    """
-    logger.debug(f"Searching for Android info with identifier: {identifier}")
-
-    # Clean identifier
-    base_identifier = identifier.replace('.apk', '')
-
-    # Try APK analysis first unless explicitly skipped
-    if not skip_apk_analysis:
-        # Check for both .apk and non-apk versions of the file
-        potential_paths = [
-            os.path.join(UPLOAD_FOLDER, secure_filename(identifier)),
-            os.path.join(UPLOAD_FOLDER, secure_filename(f"{base_identifier}.apk"))
-        ]
-
-        for file_path in potential_paths:
-            if os.path.exists(file_path):
-                package_name = get_apk_package_name(file_path)
-                if package_name:
-                    # Use the actual package name from APK for exact matching
-                    android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-                        AndroidInfo.package_name == package_name
-                    ).order_by(AndroidInfo.id.desc()).first()
-
-                    if android_info:
-                        logger.debug(f"Found AndroidInfo via APK analysis: package={package_name}")
-                        return android_info
-                    else:
-                        logger.debug(f"APK package {package_name} found but no matching DB record")
-
-    # Try exact package name match in database
-    android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-        AndroidInfo.package_name == base_identifier
-    ).order_by(AndroidInfo.id.desc()).first()
-
-    if android_info:
-        logger.debug(f"Found AndroidInfo via exact package match: {android_info.package_name}")
-        return android_info
-
-    # Try exact app_name match (frontend often sends app_name, not package_name)
-    android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-        AndroidInfo.app_name == base_identifier
-    ).order_by(AndroidInfo.id.desc()).first()
-
-    if android_info:
-        logger.debug(f"Found AndroidInfo via exact app_name match: {android_info.app_name}")
-        return android_info
-
-    # Try partial app_name match (case-insensitive)
-    android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-        AndroidInfo.app_name.ilike(f'%{base_identifier}%')
-    ).order_by(AndroidInfo.id.desc()).first()
-
-    if android_info:
-        logger.debug(f"Found AndroidInfo via partial app_name match: {android_info.app_name}")
-        return android_info
-
-    # If no exact match, try to extract potential package name from identifier
-    potential_package = base_identifier.split('-')[0]
-    if potential_package != base_identifier:
-        android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-            AndroidInfo.package_name == potential_package
-        ).order_by(AndroidInfo.id.desc()).first()
-
-        if android_info:
-            logger.debug(f"Found AndroidInfo via package name extraction: {android_info.package_name}")
-            return android_info
-
-    # Last resort: try partial matching on package name only
-    android_info = AndroidInfo.query.outerjoin(ApkDetails).filter(
-        AndroidInfo.package_name.ilike(f'%{potential_package}%')
-    ).order_by(AndroidInfo.id.desc()).first()
-
-    if android_info:
-        logger.debug(f"Found AndroidInfo via partial package match: {android_info.package_name}")
-    else:
-        logger.debug(f"No AndroidInfo found for identifier: {identifier}")
-
-    return android_info
+    if not identifier:
+        return None
+    candidates = [identifier] if identifier.lower().endswith('.apk') else [f'{identifier}.apk']
+    for filename in candidates:
+        file_path = artifact_path(UPLOAD_FOLDER, filename)
+        if os.path.isfile(file_path):
+            try:
+                package, version = apk_identity(APK(file_path))
+            except ArtifactError:
+                raise
+            except Exception as exc:
+                raise ArtifactError('Unable to read APK identity') from exc
+            return unique_record(AndroidInfo.query.filter_by(
+                package_name=package, version=version).limit(2).all())
+    if identifier.lower().endswith('.apk'):
+        return None
+    return unique_record(AndroidInfo.query.filter(or_(
+        AndroidInfo.package_name == identifier,
+        AndroidInfo.app_name == identifier,
+    )).limit(2).all())
 
 
 def find_component_directly(component_name):
@@ -405,7 +346,10 @@ def _component_response(identifier, model, options, exported_attr, name_attr,
     produces the per-component dict; `extra_key`/`extra_value` add the endpoint's
     third map (providers keep the full item; the rest map name -> intentFilters).
     """
-    android_info = find_android_info(identifier)
+    try:
+        android_info = find_android_info(identifier)
+    except ArtifactError as exc:
+        return {'message': str(exc)}, exc.status_code
     if not android_info:
         return {'message': f'App not found for identifier: {identifier}'}, 404
 
