@@ -787,6 +787,7 @@ import CryptoPanel from '@/components/iOS/CryptoPanel.vue';
 import FunctionsPanel from '@/components/iOS/FunctionsPanel.vue';
 import XrefsDialog from '@/components/iOS/XrefsDialog.vue';
 import PseudocodeViewer from '@/components/iOS/PseudocodeViewer.vue';
+import { groupInstructionsByRanges } from '@/utils/basicBlocks';
 
 /*
   2) dagre-d3 + d3 for graph rendering
@@ -973,21 +974,7 @@ const groupedBlocks = computed(() => {
   const { instructions, basic_block_boundaries } = disassemblyJson.value;
   if (!instructions || !basic_block_boundaries) return [];
 
-  // Sort instructions by address
-  const sortedInstr = [...instructions].sort((a, b) => a.address - b.address);
-
-  // Sort boundaries by start address
-  const boundaries = [...basic_block_boundaries].sort((a, b) => a[0] - b[0]);
-
-  // Build blocks
-  const blocks = boundaries.map(([startAddr, endAddr]) => {
-    return sortedInstr.filter(
-      (instr) => instr.address >= startAddr && instr.address < endAddr
-    );
-  });
-
-  // Filter out empty blocks
-  return blocks.filter((block) => block.length > 0);
+  return groupInstructionsByRanges(instructions, basic_block_boundaries);
 });
 
 const blockConnections = computed(() => {

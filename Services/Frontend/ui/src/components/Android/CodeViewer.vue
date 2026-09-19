@@ -121,12 +121,12 @@ import {
   lineNumbers, highlightActiveLineGutter, highlightActiveLine, keymap,
 } from '@codemirror/view';
 import {
-  bracketMatching, syntaxHighlighting, defaultHighlightStyle, forceParsing,
+  bracketMatching, syntaxHighlighting, defaultHighlightStyle,
 } from '@codemirror/language';
 import { autocompletion }              from '@codemirror/autocomplete';
 import { oneDark }                     from '@codemirror/theme-one-dark';
 import {
-  EditorState, StateField, StateEffect, RangeSet,
+  EditorState, StateField, StateEffect, RangeSet, Compartment,
 } from '@codemirror/state';
 import {
   search, openSearchPanel, closeSearchPanel, searchKeymap, highlightSelectionMatches,
@@ -175,21 +175,25 @@ const bookmarkGutter = gutter({
 const androidClassMark  = Decoration.mark({ class: 'android-class-highlight' });
 const androidPattern    = /(android\.|androidx\.|com\.android\.|com\.google\.android\.)[\w.]+/g;
 
-const androidClassField = StateField.define({
-  create: () => RangeSet.empty,
-  update(decorations, tr) {
-    if (!tr.docChanged && decorations !== RangeSet.empty) return decorations;
-    const ranges = [];
-    for (let i = 1; i <= tr.state.doc.lines; i++) {
-      const line = tr.state.doc.line(i);
-      let m;
-      androidPattern.lastIndex = 0;
-      while ((m = androidPattern.exec(line.text)) !== null) {
-        ranges.push(androidClassMark.range(line.from + m.index, line.from + m.index + m[0].length));
-      }
+const buildAndroidClassDecorations = (doc) => {
+  const ranges = [];
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    let m;
+    androidPattern.lastIndex = 0;
+    while ((m = androidPattern.exec(line.text)) !== null) {
+      ranges.push(androidClassMark.range(line.from + m.index, line.from + m.index + m[0].length));
     }
-    return RangeSet.of(ranges);
-  },
+  }
+  return RangeSet.of(ranges);
+};
+
+const androidClassField = StateField.define({
+  create: (state) => buildAndroidClassDecorations(state.doc),
+  // An empty result is cached too: appearance/selection changes need no scan.
+  update: (decorations, tr) => tr.docChanged
+    ? buildAndroidClassDecorations(tr.state.doc)
+    : decorations,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +207,8 @@ const goBack = () => router.back();
 // ── Core state ────────────────────────────────────────────────────────────────
 const editorContainer = ref(null);
 let _view = null; // raw EditorView instance (not reactive)
+const fontCompartment = new Compartment();
+const colorCompartment = new Compartment();
 
 const internalCode          = ref(store.state.currentCode || '');
 const currentFilename       = computed(() => store.state.currentFilename);
@@ -369,14 +375,16 @@ const makeSelectionTracker = () => ViewPlugin.fromClass(class {
   }
 });
 
-const buildExtensions = () => {
-  const fontTheme = EditorView.theme({
-    '.cm-editor, .cm-content, .cm-line': {
-      fontSize: fontSize.value + 'px',
-      fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
-    },
-  });
+const buildFontTheme = () => EditorView.theme({
+  '.cm-editor, .cm-content, .cm-line': {
+    fontSize: fontSize.value + 'px',
+    fontFamily: 'Monaco, Menlo, "Ubuntu Mono", Consolas, monospace',
+  },
+});
 
+const buildColorTheme = () => isDark.value ? oneDark : syntaxHighlighting(defaultHighlightStyle);
+
+const buildExtensions = () => {
   return [
     java(),
     lineNumbers(),
@@ -394,7 +402,7 @@ const buildExtensions = () => {
     bookmarkGutter,
     androidClassField,
     EditorView.decorations.from(androidClassField),
-    fontTheme,
+    fontCompartment.of(buildFontTheme()),
     EditorView.domEventHandlers({
       mousemove: handleMouseMove,
       mouseleave: () => hideAndroidTooltip(),
@@ -416,7 +424,7 @@ const buildExtensions = () => {
       showOverlay: 'always',
       gutters: [{ 1: '#00FF00', 2: '#00FF00' }],
     })),
-    isDark.value ? oneDark : syntaxHighlighting(defaultHighlightStyle),
+    colorCompartment.of(buildColorTheme()),
   ];
 };
 
@@ -425,14 +433,7 @@ const buildExtensions = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const initEditor = () => {
-  if (_view) {
-    _view.destroy();
-    _view = null;
-  }
-  if (!editorContainer.value) return;
-
-  // Reset bookmarks when editor reinitialises (theme/font change)
-  bookmarks.value = [];
+  if (_view || !editorContainer.value) return;
 
   _view = new EditorView({
     state: EditorState.create({
@@ -442,8 +443,8 @@ const initEditor = () => {
     parent: editorContainer.value,
   });
 
-  // Force a full parse so syntax highlighting is correct from line 1
-  forceParsing(_view, _view.state.doc.length, 5000);
+  totalLines.value = _view.state.doc.lines;
+  // CodeMirror parses incrementally and schedules remaining work in the background.
 };
 
 onMounted(() => { initEditor(); });
@@ -452,9 +453,13 @@ onUnmounted(() => {
   if (_view) { _view.destroy(); _view = null; }
 });
 
-// Recreate the editor when theme or font size changes (extensions must be rebuilt)
-watch([isDark, fontSize], () => {
-  if (editorContainer.value) initEditor();
+// Reconfigure only appearance, preserving the document, selection and bookmarks.
+watch(isDark, () => {
+  if (_view) _view.dispatch({ effects: colorCompartment.reconfigure(buildColorTheme()) });
+});
+
+watch(fontSize, () => {
+  if (_view) _view.dispatch({ effects: fontCompartment.reconfigure(buildFontTheme()) });
 });
 
 // Update doc content on file navigation (keeps editor alive, just swaps text)
@@ -465,7 +470,6 @@ watch(() => store.state.currentCode, (newCode) => {
     if (_view.state.doc.toString() !== code) {
       _view.dispatch({ changes: { from: 0, to: _view.state.doc.length, insert: code } });
     }
-    forceParsing(_view, _view.state.doc.length, 5000);
     // Scroll to pending jump target after code loads
     if (pendingJumpPos.value !== null) {
       const pos = pendingJumpPos.value;

@@ -1,14 +1,6 @@
 """Decompiled-Java class -> source-file index (Option C).
 
-The problem: JADX and Vineflower lay out `sources/` differently (deobfuscated
-names, dex2jar name-mangling, inner-class placement), so resolving a class to its
-file by basename is unreliable. The fix: after a decompile, read what each .java
-file *declares* (`package` + top-level type names) and record FQCN -> rel_path in
-Postgres. Resolution is then an exact, package-aware, decompiler-agnostic lookup.
 
-The parser runs INSIDE the engine container (that's where the .java files live and
-it ships python3). The backend pushes CLASS_INDEX_SCRIPT in via write_file, runs
-it, and reads a JSON array of {fqcn, simple, package, rel_path} back from stdout.
 """
 
 import json
