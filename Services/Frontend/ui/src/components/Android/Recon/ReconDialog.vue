@@ -25,10 +25,6 @@
             <v-icon start>mdi-key-variant</v-icon>
             KEYS
           </v-tab>
-          <v-tab value="classes">
-            <v-icon start>mdi-book-variant</v-icon>
-            CLASSES
-          </v-tab>
         </v-tabs>
 
         <v-window v-model="mainTab" v-if="!loading">
@@ -347,15 +343,6 @@
                 </v-alert>
               </div>
             </div>
-          </v-window-item>
-
-          <!-- Classes Tab -->
-          <v-window-item value="classes">
-            <v-list v-if="reconData && reconData.classes">
-              <v-list-item v-for="className in reconData.classes" :key="className">
-                <v-list-item-title>{{ className }}</v-list-item-title>
-              </v-list-item>
-            </v-list>
           </v-window-item>
         </v-window>
       </v-card-text>

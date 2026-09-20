@@ -1,11 +1,21 @@
 <template>
   <div :class="isDark ? 'theme--dark' : 'theme--light'">
+    <v-alert v-if="dashboardError" type="error" variant="tonal" class="mb-4">
+      <div class="d-flex align-center justify-space-between">
+        <span>{{ dashboardError }}</span>
+        <v-btn variant="text" :loading="dashboardLoading" @click="fetchData">Retry</v-btn>
+      </div>
+    </v-alert>
+
     <!-- Android Applications Table -->
     <v-card class="mb-5" :class="isDark ? 'theme--dark' : 'theme--light'">
       <v-data-table
         v-model:expanded="expandedAndroid"
         :headers="androidHeaders"
         :items="sortedAndroidItems"
+        :loading="dashboardLoading"
+        loading-text="Loading Android apps..."
+        :no-data-text="dashboardError ? 'Applications could not be loaded.' : 'No Android apps uploaded yet.'"
         :search="searchQuery"
         item-value="application"
         show-expand
@@ -162,6 +172,8 @@
             <v-btn
               v-if="!isScanning(item.application)"
               @click.stop.prevent="ScanApp(item.application)"
+              :loading="activeScanRequests[item.application] === true"
+              :disabled="activeScanRequests[item.application] === true"
               icon
               :class="isDark ? 'btn-dark' : ''"
             >
@@ -387,6 +399,9 @@
         v-model:expanded="expandedIos"
         :headers="iosHeaders"
         :items="sortedIosItems"
+        :loading="dashboardLoading"
+        loading-text="Loading iOS apps..."
+        :no-data-text="dashboardError ? 'Applications could not be loaded.' : 'No iOS apps uploaded yet.'"
         :search="searchQuery"
         item-value="application"
         show-expand
@@ -867,6 +882,8 @@ import { useRouter } from 'vue-router';
 
 import axios from 'axios';
 import { engineApi } from '@/services';
+import { getAuthSessionVersion } from '@/utils/http';
+import { createDashboardItem, mergeDashboardItems, snapshotDashboardItems } from '@/utils/dashboardItems';
 import 'vue-code-highlight/themes/prism-okaidia.css';
 import IntentFilters from "@/components/Filters/IntentFilters.vue";
 import InfoSection from "@/components/iOS/InfoSection.vue";
@@ -936,7 +953,12 @@ export default defineComponent({
         { title: 'Delete', key: 'delete', sortable: false },
         { title: '', key: 'data-table-expand' },
       ],
-      items: [],
+      items: snapshotDashboardItems(store.state.dashboardItems),
+      dashboardLoading: true,
+      dashboardError: '',
+      dashboardRequestId: 0,
+      dashboardDisposed: false,
+      dashboardSessionVersion: getAuthSessionVersion(),
       selectedFile: null,
       selectedAndroidFile: null,
       selectedIosFile: null,
@@ -1062,16 +1084,18 @@ export default defineComponent({
     }
 
     this.fetchData();
-    this.loadActiveScans();
 
     // Sync with backend truth so we don't lose scan indicators after refresh.
     await this.syncActiveScansFromBackend();
+    if (!this.isDashboardRequestCurrent()) return;
 
     // Wait a bit for store to be fully loaded
     await this.$nextTick();
+    if (!this.isDashboardRequestCurrent()) return;
 
     // Resume active scans with verification
     await this.resumeActiveScans();
+    if (!this.isDashboardRequestCurrent()) return;
 
     // Periodically reconcile backend active tasks (WAITING/PROCESSING) with local store.
     this.backendScanSyncInterval = setInterval(() => {
@@ -1085,6 +1109,9 @@ export default defineComponent({
   },
 
   beforeUnmount() {
+    this.cacheDashboardItems();
+    this.dashboardDisposed = true;
+    this.dashboardRequestId += 1;
     // Clean up polling intervals
     Object.values(this.scanPollingIntervals).forEach(interval => {
       clearInterval(interval);
@@ -1192,6 +1219,25 @@ export default defineComponent({
     },
   },
   watch: {
+    '$store.state.dashboardInvalidation': {
+      // Apply every upload/delete even when several complete in the same render tick.
+      flush: 'sync',
+      handler(change) {
+        if (!change || !this.isDashboardRequestCurrent()) return;
+        // Handle requests that began on an earlier page instance before navigation.
+        const { filename, remove } = change;
+        this.dashboardRequestId += 1;
+        this.items = remove
+          ? this.items.filter(item => item.application !== filename)
+          : this.items.map(item => item.application === filename
+            ? createDashboardItem({ application: filename })
+            : item);
+        delete this.expandedItemData[filename];
+        this.saveExpandedItemDataToCache();
+        this.cacheDashboardItems();
+        this.fetchData();
+      },
+    },
     // Reset to page 1 when search query changes
     stringSearchQuery() {
       this.currentPage = 1;
@@ -1201,6 +1247,7 @@ export default defineComponent({
     async uploadAndroidFile() {
       if (!this.selectedAndroidFile) return;
 
+      const filename = this.selectedAndroidFile.name || this.selectedAndroidFile[0]?.name;
       this.androidUploading = true;
       const formData = new FormData();
       formData.append('file', this.selectedAndroidFile);
@@ -1213,7 +1260,7 @@ export default defineComponent({
           params: { type: 'audit' },
         });
 
-        this.fetchData();
+        this.invalidateDashboardItem(filename);
         this.selectedAndroidFile = null;
         this.showSnackbar('APK uploaded successfully', 'success');
       } catch (error) {
@@ -1227,6 +1274,7 @@ export default defineComponent({
      async uploadIosFile() {
       if (!this.selectedIosFile) return;
 
+      const filename = this.selectedIosFile.name || this.selectedIosFile[0]?.name;
       this.iosUploading = true;
       const formData = new FormData();
       formData.append('file', this.selectedIosFile);
@@ -1239,7 +1287,7 @@ export default defineComponent({
           params: { type: 'ios' },
         });
 
-        this.fetchData();
+        this.invalidateDashboardItem(filename);
         this.selectedIosFile = null;
         this.showSnackbar('IPA uploaded successfully', 'success');
       } catch (error) {
@@ -1287,86 +1335,119 @@ export default defineComponent({
       this.$set(this.loadingStates[application], 'info', true);
     },
 
-    async fetchData() {
-      try {
-        // CRITICAL: Ensure store is loaded before proceeding
-        await this.loadActiveScans();
+    isDashboardRequestCurrent(requestId = this.dashboardRequestId) {
+      return !this.dashboardDisposed &&
+        this.dashboardSessionVersion === getAuthSessionVersion() &&
+        requestId === this.dashboardRequestId;
+    },
 
-        // Add a small delay to ensure store is fully initialized after route change
-        await this.$nextTick();
+    cacheDashboardItems() {
+      if (!this.isDashboardRequestCurrent()) return;
+      this.$store.commit('SET_DASHBOARD_ITEMS', {
+        items: this.items,
+        sessionVersion: this.dashboardSessionVersion
+      });
+    },
+
+    invalidateDashboardItem(filename, remove = false) {
+      if (this.dashboardSessionVersion !== getAuthSessionVersion()) return;
+      if (!filename) {
+        this.fetchData();
+        return;
+      }
+      // Invalidate shared caches even if navigation unmounted the upload/delete caller.
+      try {
+        const cachedDetails = JSON.parse(localStorage.getItem('leviathan_expanded_item_data') || '{}');
+        delete cachedDetails[filename];
+        localStorage.setItem('leviathan_expanded_item_data', JSON.stringify(cachedDetails));
+      } catch { /* In-memory cache invalidation still applies. */ }
+      this.$store.commit('INVALIDATE_DASHBOARD_ITEM', { filename, remove });
+    },
+
+    async fetchData() {
+      if (!this.isDashboardRequestCurrent()) return;
+      const requestId = ++this.dashboardRequestId;
+      this.dashboardLoading = true;
+      this.dashboardError = '';
+
+      try {
+        await this.loadActiveScans();
+        if (!this.isDashboardRequestCurrent(requestId)) return;
 
         const response = await axios.get(`${import.meta.env.VITE_APP_API_URL}/audit/files`);
-        this.items = response.data.map(item => ({
-          ...item,
-          isDecompiling: false,
-          isDecompiled: false,
-          lastEngine: null, // engine the app was last decompiled with (from decompileCheck)
-          isLoadingActivities: false,
-          isLoadingServices: false,
-          isLoadingReceivers: false,
-          isLoadingProviders: false,
-          isLoadingInfo: false,
-          isLoadingExports: false,
-          isLoadingImports: false,
-          isLoadingSymbols: false,
-          isLoadingFunctions: false,
-          isLoadingClasses: false,
-        }));
+        if (!this.isDashboardRequestCurrent(requestId)) return;
+        if (!Array.isArray(response.data)) throw new Error('Invalid application list response');
 
-        // Process each item and apply cached scan data
+        // Retain the displayed rows and their results until a fresh list is available.
+        this.items = mergeDashboardItems(response.data, this.items);
         for (const item of this.items) {
-          // Fetch item details
-          await this.fetchItemDetails(item);
+          if (!item.application.endsWith('.apk')) continue;
 
-          // For APK files, check for scan data
-          if (item.application.endsWith('.apk')) {
-            // Check if actively scanning
-            if (this.isScanning(item.application)) {
-              item.scanData = {
-                status: 'in_progress',
-                vulnerabilityCount: 0
-              };
-              continue;
-            }
+          // The list already contains Android details; avoid a second APK identity read.
+          if (item.packageName && !item.identityError) {
+            this.expandedItemData[item.application] = {
+              appVersion: item.version,
+              packageName: item.packageName,
+              sdkVersion: item.sdkVersion,
+              debuggable: item.debuggable,
+              MainActivity: item.MainActivity,
+              AndroidUser: item.AndroidUser
+            };
+          }
 
-            // IMPORTANT: Check cached results first
-            const cachedResult = this.getRecentScanResult(item.application);
-            console.log(`Checking cache for ${item.application}:`, cachedResult);
+          if (this.isScanning(item.application)) {
+            item.scanData = { status: 'in_progress', vulnerabilityCount: 0 };
+            continue;
+          }
 
-            if (cachedResult && cachedResult.result && cachedResult.result.security_issues_summary) {
-              console.log(`Applying cached scan result for ${item.application}`, cachedResult.result.security_issues_summary);
-              item.scanData = {
-                status: 'completed',
-                vulnerabilityCount: this.getTotalVulnerabilityCount(cachedResult.result.security_issues_summary),
-                scanDate: cachedResult.result.scan_date || cachedResult.timestamp,
-                issueCategories: Object.keys(cachedResult.result.security_issues_summary || {}).length,
-                security_issues_summary: cachedResult.result.security_issues_summary
-              };
-              // Skip API call if we have cached data
-              continue;
-            }
-
-            console.log(`No valid cache for ${item.application}, fetching from API`);
-
-            // Only fetch from API if no cached data
-            await this.fetchScanData(item);
+          const cachedResult = this.getRecentScanResult(item.application);
+          if (cachedResult?.result?.security_issues_summary) {
+            item.scanData = {
+              status: 'completed',
+              vulnerabilityCount: this.getTotalVulnerabilityCount(cachedResult.result.security_issues_summary),
+              scanDate: cachedResult.result.scan_date || cachedResult.timestamp,
+              issueCategories: Object.keys(cachedResult.result.security_issues_summary).length,
+              security_issues_summary: cachedResult.result.security_issues_summary
+            };
           }
         }
+        this.cacheDashboardItems();
+        this.saveExpandedItemDataToCache();
 
-        // Check decompile status for all APK items in parallel (non-blocking)
-        const apkItems = this.items.filter(item => item.application.endsWith('.apk'));
-        Promise.all(apkItems.map(async (item) => {
-          try {
-            const res = await engineApi.decompileCheck(item.application);
-            item.isDecompiled = res.decompiled === true;
-            item.lastEngine = res.engine || null;
-          } catch {
-            // ignore errors — button stays enabled
+        // Refresh independent row details together, with a bounded number of apps in flight.
+        const pendingItems = [...this.items];
+        const workers = Array.from({ length: Math.min(4, pendingItems.length) }, async () => {
+          while (pendingItems.length && this.isDashboardRequestCurrent(requestId)) {
+            const item = pendingItems.shift();
+            const updates = [this.fetchItemDetails(item, requestId)];
+            if (item.application.endsWith('.apk')) {
+              updates.push(this.fetchScanData(item, requestId));
+              updates.push((async () => {
+                try {
+                  const result = await engineApi.decompileCheck(item.application);
+                  if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
+                  item.isDecompiled = result.decompiled === true;
+                  item.lastEngine = result.engine || null;
+                } catch {
+                  // Preserve the last known decompile state if refresh fails.
+                }
+              })());
+            }
+            await Promise.allSettled(updates);
           }
-        }));
+        });
+        await Promise.all(workers);
       } catch (error) {
+        if (!this.isDashboardRequestCurrent(requestId)) return;
         console.error('Error fetching data:', error);
-        this.showSnackbar('Error loading applications', 'error');
+        this.dashboardError = this.items.length
+          ? 'Unable to refresh applications. Showing the previously loaded apps.'
+          : 'Unable to load applications. Please try again.';
+      } finally {
+        if (this.isDashboardRequestCurrent(requestId)) {
+          this.dashboardLoading = false;
+          this.cacheDashboardItems();
+        }
       }
     },
 
@@ -1379,6 +1460,7 @@ export default defineComponent({
       const maxResumeAge = 30 * 60 * 1000; // Only resume polling for scans started in the last 30 minutes
 
       for (const scan of activeScans) {
+        if (!this.isDashboardRequestCurrent()) return;
         const scanAge = now - scan.startTime;
         const isValidTaskId = scan.taskId &&
                              scan.taskId !== 'pending' &&
@@ -1404,6 +1486,7 @@ export default defineComponent({
         // First try Celery task status endpoint
         try {
           const response = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan/status/${scan.taskId}`);
+          if (!this.isDashboardRequestCurrent()) return;
 
           if (response.data.state === 'PENDING' || response.data.state === 'STARTED' || response.data.state === 'PROGRESS') {
             if (shouldResumePoll) {
@@ -1429,6 +1512,7 @@ export default defineComponent({
             statusChecked = true;
           }
         } catch (error) {
+          if (!this.isDashboardRequestCurrent()) return;
           console.log(`Celery status check failed for ${scan.taskId}, trying GUID endpoint...`);
         }
 
@@ -1436,6 +1520,7 @@ export default defineComponent({
         if (!statusChecked) {
           try {
             const guidResponse = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan/status-by-guid/${scan.taskId}`);
+            if (!this.isDashboardRequestCurrent()) return;
             const data = guidResponse.data;
 
             console.log(`GUID status response for ${scan.filename}:`, data);
@@ -1473,6 +1558,7 @@ export default defineComponent({
               });
             }
           } catch (guidError) {
+            if (!this.isDashboardRequestCurrent()) return;
             console.error(`Both status endpoints failed for ${scan.taskId}:`, guidError);
             // For old scans where both endpoints fail, mark as failed
             if (!shouldResumePoll) {
@@ -1510,6 +1596,34 @@ export default defineComponent({
       try {
         // Mark request as in-flight to block duplicates
         this.activeScanRequests[filename] = true;
+
+        const item = this.items.find(item => item.application === filename);
+        let hasCompletedScan = item?.scanData?.status === 'completed' ||
+          Boolean(this.getRecentScanResult(filename));
+
+        // Check the backend when results have not loaded or the local cache has expired.
+        if (!hasCompletedScan) {
+          try {
+            await axios.get(
+              `${import.meta.env.VITE_APP_API_URL}/engine/scan/results/${encodeURIComponent(filename)}/high-level`
+            );
+            hasCompletedScan = true;
+          } catch (error) {
+            if (error.response?.status !== 404) {
+              this.showSnackbar('Unable to check previous scan results. Please try again before starting a new scan.', 'error');
+              return;
+            }
+          }
+        }
+
+        // An existing scan may have become active while the results check was pending.
+        if (this.isScanning(filename)) return;
+
+        if (hasCompletedScan && !window.confirm(
+          `A scan has already completed for ${filename}.\n\nRestarting will overwrite the previous scan output and replace the results shown for this app.\n\nAre you sure you want to restart?`
+        )) {
+          return;
+        }
 
         // Immediately mark as scanning to prevent duplicate clicks
         this.startScan({ taskId: tempTaskId, filename });
@@ -1634,7 +1748,8 @@ export default defineComponent({
       }
     },
 
-    async fetchScanData(item) {
+    async fetchScanData(item, requestId = this.dashboardRequestId) {
+      if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
       try {
         // Only try to fetch scan data for APK files
         if (!item.application.endsWith('.apk')) return;
@@ -1653,6 +1768,7 @@ export default defineComponent({
         const response = await axios.get(
           `${import.meta.env.VITE_APP_API_URL}/engine/scan/results/${item.application}/high-level`
         );
+        if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
 
         if (response.data) {
           // Check one more time if scan started while we were fetching
@@ -1673,6 +1789,7 @@ export default defineComponent({
           };
         }
       } catch (error) {
+        if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
         console.error(`Error fetching scan data for ${item.application}:`, error);
         if (error.response && error.response.status === 404) {
           // No scan data found - this is normal for new uploads
@@ -1680,8 +1797,8 @@ export default defineComponent({
             status: 'not_found',
             vulnerabilityCount: 0
           };
-        } else {
-          // Actual error occurred
+        } else if (item.scanData?.status !== 'completed') {
+          // Keep previously loaded results visible during a temporary request failure.
           item.scanData = {
             status: 'error',
             errorMessage: error.response?.data?.message || 'Unknown error'
@@ -1714,6 +1831,7 @@ export default defineComponent({
     },
 
     async pollScanStatus(taskId, filename) {
+      if (!this.isDashboardRequestCurrent()) return;
       // Clear any existing polling for this task OR filename
       if (this.scanPollingIntervals[taskId]) {
         clearInterval(this.scanPollingIntervals[taskId]);
@@ -1735,6 +1853,7 @@ export default defineComponent({
       const pollInterval = setInterval(async () => {
         try {
           const response = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan/status/${taskId}`);
+          if (!this.isDashboardRequestCurrent()) return;
 
           // Reset retry count on successful request
           retryCount = 0;
@@ -1758,6 +1877,7 @@ export default defineComponent({
               await this.fetchItemDetails(item);
               // Now fetchScanData won't see it as "in_progress"
               await this.fetchScanData(item);
+              if (!this.isDashboardRequestCurrent()) return;
 
               console.log('Scan data after fetch:', item.scanData);
 
@@ -1822,6 +1942,7 @@ export default defineComponent({
           }
           // PENDING state continues polling
         } catch (error) {
+          if (!this.isDashboardRequestCurrent()) return;
           console.error('Error polling scan status:', error);
           retryCount++;
 
@@ -1839,6 +1960,7 @@ export default defineComponent({
     },
 
     async pollScanStatusByGUID(scanGuid, filename) {
+      if (!this.isDashboardRequestCurrent()) return;
       // Poll scan status using GUID - for queued scans that don't have a Celery task ID yet
       console.log(`Starting GUID-based polling for ${filename} with GUID ${scanGuid}`);
 
@@ -1863,6 +1985,7 @@ export default defineComponent({
       const pollInterval = setInterval(async () => {
         try {
           const response = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan/status-by-guid/${scanGuid}`);
+          if (!this.isDashboardRequestCurrent()) return;
 
           // Reset retry count on successful request
           retryCount = 0;
@@ -1908,6 +2031,7 @@ export default defineComponent({
             if (item) {
               await this.fetchItemDetails(item);
               await this.fetchScanData(item);
+              if (!this.isDashboardRequestCurrent()) return;
 
               if (item.scanData && item.scanData.security_issues_summary) {
                 const resultToCache = {
@@ -1948,6 +2072,7 @@ export default defineComponent({
           }
 
         } catch (error) {
+          if (!this.isDashboardRequestCurrent()) return;
           retryCount++;
           console.error(`Error polling scan status (attempt ${retryCount}/${maxRetries}):`, error);
 
@@ -1972,7 +2097,8 @@ export default defineComponent({
       this.scanPollingIntervals[scanGuid] = pollInterval;
     },
 
-    async fetchItemDetails(item) {
+    async fetchItemDetails(item, requestId = this.dashboardRequestId) {
+      if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
       // Skip API call if we already have cached data for this item
       if (this.expandedItemData[item.application] && !this.expandedItemData[item.application].error) {
         return;
@@ -1982,16 +2108,19 @@ export default defineComponent({
         const response = await axios.get(
           `${import.meta.env.VITE_APP_API_URL}/${item.application.endsWith('.ipa') ? 'ios' : 'audit'}/details/${item.application}`
         );
+        if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
         this.expandedItemData[item.application] = response.data;
         // Persist to localStorage for navigation persistence
         this.saveExpandedItemDataToCache();
       } catch (error) {
+        if (!this.isDashboardRequestCurrent(requestId) || !this.items.includes(item)) return;
         console.error('Error loading expanded item data:', error);
         this.expandedItemData[item.application] = { error: 'Error loading data' };
       }
     },
 
     saveExpandedItemDataToCache() {
+      if (!this.isDashboardRequestCurrent()) return;
       try {
         localStorage.setItem('leviathan_expanded_item_data', JSON.stringify(this.expandedItemData));
       } catch (e) {
@@ -2003,7 +2132,7 @@ export default defineComponent({
       if (confirm('Are you sure you want to delete this item?')) {
         try {
           await axios.delete(`${import.meta.env.VITE_APP_API_URL}/audit/delete/${item.application}`);
-          this.items = this.items.filter((i) => i !== item);
+          this.invalidateDashboardItem(item.application, true);
           console.log('Item deleted successfully');
           this.showSnackbar('Item deleted successfully', 'success');
 
@@ -2018,6 +2147,7 @@ export default defineComponent({
       if (!this.selectedFile) {
         return;
       }
+      const filename = this.selectedFile.name || this.selectedFile[0]?.name;
       const formData = new FormData();
       formData.append('file', this.selectedFile);
       this.loading = true; // Set loading to true
@@ -2028,7 +2158,7 @@ export default defineComponent({
           },
           params: { type },
         });
-        this.fetchData();
+        this.invalidateDashboardItem(filename);
         this.selectedFile = null;
       } catch (error) {
         console.error('Error uploading file:', error);
@@ -2486,6 +2616,7 @@ export default defineComponent({
     async syncActiveScansFromBackend() {
       try {
         const resp = await axios.get(`${import.meta.env.VITE_APP_API_URL}/engine/scan-tasks/active`);
+        if (!this.isDashboardRequestCurrent()) return;
         const active = resp?.data?.active_scans || [];
 
         // Ensure any backend-active scans are present in the store so isScanning() stays true.

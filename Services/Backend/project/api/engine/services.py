@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import logging
 import glob
 import hashlib
@@ -244,67 +243,12 @@ class EngineService:
             logger.error(f"Failed to retrieve or parse results for {app_name}: {e}")
             return None
 
-    @staticmethod
-    def _rule_from_partial_url(url):
-        """Recover the rule name from a finding's details.url, which points at the
-        per-finding HTML report (.../vulnerability/<N>-<RuleName>.html)."""
-        if not url:
-            return None
-        m = re.search(r'/\d+-([A-Za-z0-9_]+)\.html', str(url))
-        return m.group(1) if m else None
-
-    def get_partial_scan_results(self, app_name):
-        """Load Appshark's incremental results_partial.json (written when a scan is
-        capped/interrupted before results.json) and reshape the flat finding list into
-        the SecurityInfo structure AppSharkParsing expects. Findings are grouped by rule,
-        recovered from each finding's details.url. Returns a results.json-shaped dict (with
-        AppInfo empty — the caller supplies app metadata) or None if no partial file."""
-        try:
-            settings = self.get_settings()
-            scan_root = self._resolve_scan_root(settings)
-            if '/' in app_name:
-                app_name = app_name.split('/', 1)[1]
-            app_name = app_name.strip('/')
-            partial_file = os.path.join(scan_root, app_name, 'results_partial.json')
-            if not self.file_exists(partial_file):
-                return None
-            findings = json.loads(self.get_file_content(partial_file))
-            if not isinstance(findings, list) or not findings:
-                return None
-            security_info = {}
-            for f in findings:
-                if not isinstance(f, dict):
-                    continue
-                details = f.get('details', {}) or {}
-                rule = self._rule_from_partial_url(details.get('url')) or 'Unknown'
-                category = security_info.setdefault(rule, {})
-                entry = category.setdefault(rule, {
-                    'name': rule, 'category': rule, 'detail': '', 'model': '',
-                    'possibility': f.get('possibility', ''), 'wiki': '',
-                    'deobfApk': {}, 'vulners': [],
-                })
-                entry['vulners'].append(f)
-            logger.info(f"Loaded partial results for {app_name}: {len(findings)} findings across {len(security_info)} rules")
-            return {'AppInfo': {}, 'SecurityInfo': security_info, 'partial': True}
-        except Exception as e:
-            logger.error(f"Failed to load partial results for {app_name}: {e}")
-            return None
-
-    def parse_scan_results(self, app_name, allow_partial=False):
+    def parse_scan_results(self, app_name):
         try:
             results = self.get_scan_results(app_name)
             if results:
                 logger.info(f"Successfully retrieved results for {app_name}")
                 return AppSharkParsing(results).parse_all()
-            # No final results.json. If the caller opted into partial viewing, reshape
-            # results_partial.json so it can be researched while the full scan re-runs.
-            if allow_partial:
-                partial = self.get_partial_scan_results(app_name)
-                if partial:
-                    parsed = AppSharkParsing(partial).parse_all()
-                    parsed['partial'] = True
-                    logger.info(f"Serving PARTIAL results for {app_name}")
-                    return parsed
             logger.error(f"No results found for {app_name}")
             return None
         except Exception as e:
@@ -538,6 +482,14 @@ class EngineService:
     def write_file_content(self, file_path, content):
         self.containers.write_file(file_path, content)
 
+    @staticmethod
+    def normalize_settings(settings):
+        """Discard retired custom options from saved settings and older clients."""
+        return {
+            key: value for key, value in (settings or {}).items()
+            if key not in {'selectivePrimeTaint', 'partialResultsEnabled'}
+        }
+
     def get_settings(self):
         try:
             # Check if the settings file exists
@@ -567,7 +519,7 @@ class EngineService:
                 "checkPermission": False
             }
 
-        return settings
+        return self.normalize_settings(settings)
 
     def run_scan(self, settings, scan_guid=None):
         """Dispatch one AppShark scan to the engine worker and wait for it.
@@ -582,7 +534,7 @@ class EngineService:
         a callback/chord is the follow-up, alongside the queue rework.
         """
         try:
-            settings = settings or {}
+            settings = self.normalize_settings(settings)
             scan_root = self._resolve_scan_root(settings)
             apk_path = settings.get('apkPath', '')
             app_identifier = os.path.splitext(os.path.basename(apk_path))[0]
@@ -631,7 +583,6 @@ class EngineService:
                     "engine_status": result.get("engine_status"),
                     "output": output,
                     "results_file": result.get("results_path"),
-                    "partial_results_file": result.get("partial_results_path"),
                     "app_identifier": app_identifier,
                     "scan_root": scan_root,
                 }
@@ -701,7 +652,7 @@ class EngineService:
             print("Existing settings: ", existing_settings)  # Add this for debugging
 
             # Merge new settings with existing settings
-            merged_settings = {**existing_settings, **new_settings}
+            merged_settings = self.normalize_settings({**existing_settings, **new_settings})
 
             # write_file creates parent directories itself.
             settings_json = json.dumps(merged_settings)

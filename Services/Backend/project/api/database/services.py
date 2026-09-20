@@ -15,12 +15,7 @@ from datetime import datetime
 
 
 def parse_exported_attr(xml_value):
-    """Tri-state interpretation of the android:exported manifest attribute.
-
-    Returns:
-        True  - attribute explicitly "true"
-        False - attribute explicitly anything else (typically "false")
-        None  - attribute absent (caller applies implicit-export heuristic)
+    """Tri-state i
     """
     if xml_value is None:
         return None
@@ -29,15 +24,6 @@ def parse_exported_attr(xml_value):
 
 def is_component_accessible(exported, has_intent_filters):
     """Whether an activity/service/receiver is reachable from a 3rd-party app.
-
-    Honors explicit android:exported="false" as an opt-out regardless of
-    intent-filter presence (the bug that previously caused false positives:
-    receivers like com.android.packageinstaller.common.InstallEventReceiver
-    declare exported=false + intent-filter and are NOT 3rd-party reachable).
-
-    Implicit export (pre-targetSdk-31): activities/services/receivers with at
-    least one intent-filter and no explicit exported attribute were considered
-    exported by Android. We preserve that fallback only when `exported` is None.
     """
     if exported is True:
         return True

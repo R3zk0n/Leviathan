@@ -144,16 +144,6 @@
       :paused="spawnPaused"
     />
 
-    <DownloadProgressDialog
-      :show="downloadDialog"
-      @update:show="downloadDialog = $event"
-      :file-name="downloadFileName"
-      :file-type="downloadFileType"
-      :progress="downloadProgress"
-      :bytes-received="downloadBytesReceived"
-      :total-bytes="downloadTotalBytes"
-    />
-
     <!-- Processes List Dialog -->
     <v-dialog v-model="processesDialog" fullscreen hide-overlay transition="dialog-bottom-transition">
       <v-card :class="{ 'theme--dark': isDark, 'theme--light': !isDark }">
@@ -260,13 +250,9 @@
             </v-list-item-content>
 
             <v-list-item-action class="d-flex flex-row align-center my-0">
-              <v-btn color="primary" small @click="attachToProcess(process)" class="mr-2">
+              <v-btn color="primary" small @click="attachToProcess(process)">
                 <v-icon left small>mdi-link-variant</v-icon>
                 ATTACH
-              </v-btn>
-              <v-btn color="secondary" small @click="pullFromProcess(process)">
-                <v-icon left small>mdi-download</v-icon>
-                PULL
               </v-btn>
             </v-list-item-action>
           </v-list-item>
@@ -291,7 +277,6 @@ import axios from 'axios';
 import RemoteAttachDialog from './Dialogs/RemoteAttachDialog.vue';
 import FridaREPLDialog from './Dialogs/FridaREPLDialog.vue';
 import SpawnAppDialog from "@/components/Frida/Dialogs/SpawnAppDialog.vue";
-import DownloadProgressDialog from "@/components/Frida/Dialogs/DownloadProgressDialog.vue";
 import { newSessionId } from '@/utils/frida';
 
 const apiUrl = import.meta.env.VITE_APP_API_URL || window.location.origin;
@@ -299,7 +284,6 @@ const apiUrl = import.meta.env.VITE_APP_API_URL || window.location.origin;
 // Store and UI variables
 const store = useStore();
 const isDark = computed(() => store.state.isDark);
-const downloadFileType = ref('File');
 
 const REQUEST_TIMEOUT_MS = 12_000;
 
@@ -344,11 +328,6 @@ const sessionId = ref(newSessionId());
 const spawnPaused = ref(false);
 const selectedPid = ref(null);
 const loadingProcesses = ref(false);
-const downloadDialog = ref(false);
-const downloadProgress = ref(0);
-const downloadFileName = ref('');
-const downloadBytesReceived = ref(0);
-const downloadTotalBytes = ref(0);
 
 // Device filtering (UX)
 const deviceSearch = ref('');
@@ -650,61 +629,6 @@ const spawnAndAttachToApp = async (spawnInfo) => {
   } catch (err) {
     console.error('Error in spawn and attach:', err);
     snackbar.value = { show: true, text: `Failed to spawn app: ${err.message}`, color: 'error' };
-  }
-};
-
-const pullFromProcess = async (process) => {
-  console.log('Pulling from process:', process);
-  try {
-    downloadFileName.value = process.name;
-    downloadFileType.value = 'File';
-    downloadProgress.value = 0;
-    downloadBytesReceived.value = 0;
-    downloadTotalBytes.value = 0;
-    downloadDialog.value = true;
-
-    const pullResponse = await axios.post(
-      `${apiUrl}/frida/pull`,
-      {
-        device_id: selectedDevice.value.id,
-        pid: process.pid,
-        os_type: selectedDevice.value.os,
-      },
-      { timeout: REQUEST_TIMEOUT_MS }
-    );
-
-    if (pullResponse.data.status === 'success' && pullResponse.data.download_id) {
-      downloadFileType.value = pullResponse.data.file_type;
-      const downloadUrl = `${apiUrl}/frida/download/${pullResponse.data.download_id}`;
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      const [identifier] = Object.keys(pullResponse.data.file);
-      link.download = `${identifier}.${pullResponse.data.file_type.toLowerCase()}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      snackbar.value = {
-        show: true,
-        text: `Successfully pulled ${pullResponse.data.file_type}`,
-        color: 'success',
-        timeout: 5000
-      };
-    } else {
-      throw new Error(pullResponse.data.message || 'Unknown error occurred during pull operation');
-    }
-  } catch (err) {
-    console.error('Error pulling from process:', err);
-    snackbar.value = {
-      show: true,
-      text: formatAxiosErrorMessage(err, `Failed to pull from process: ${err.response?.data?.message || err.message}`),
-      color: 'error',
-      timeout: 5000
-    };
-  } finally {
-    setTimeout(() => {
-      downloadDialog.value = false;
-    }, 1000);
   }
 };
 

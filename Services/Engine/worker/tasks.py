@@ -283,9 +283,6 @@ def run_appshark(self, settings, scan_guid=None):
             "scan_root": scan_root,
             "app_identifier": app_identifier,
             "results_path": results_path,
-            "partial_results_path": os.path.join(
-                scan_root, app_identifier, "results_partial.json"
-            ),
             "output": output,
         }
 

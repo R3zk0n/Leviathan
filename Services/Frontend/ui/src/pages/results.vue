@@ -18,30 +18,6 @@
           </template>
           <span>Generate PDF Report</span>
         </v-tooltip>
-        <v-tooltip location="bottom">
-          <template v-slot:activator="{ props }">
-            <v-switch
-              v-bind="props"
-              v-model="showPartial"
-              label="Partial results"
-              color="warning"
-              density="compact"
-              hide-details
-              inset
-              class="d-inline-flex align-center ml-4"
-            ></v-switch>
-          </template>
-          <span>Show findings from an incomplete/interrupted scan (results_partial.json) so you can research while the full scan re-runs. Not a completed result.</span>
-        </v-tooltip>
-      </v-col>
-    </v-row>
-
-    <v-row v-if="applicationResults && isPartialResults">
-      <v-col>
-        <v-alert type="warning" variant="tonal">
-          Partial results mode is enabled. Findings are based on HTML artifacts only, so
-          accessibility may be shown as UNKNOWN and false-positive marking is disabled.
-        </v-alert>
       </v-col>
     </v-row>
 
@@ -158,7 +134,7 @@
                 Findings
                 <v-chip size="x-small" color="primary" variant="tonal" class="ml-2">{{ totalFilteredFindings }}</v-chip>
               </v-tab>
-              <v-tab v-if="!isPartialResults" value="false-positives">
+              <v-tab value="false-positives">
                 False Positives
                 <v-chip v-if="suppressedCount > 0" size="x-small" color="warning" variant="tonal" class="ml-2">{{ suppressedCount }}</v-chip>
               </v-tab>
@@ -229,7 +205,6 @@
                             :items-per-page="itemsPerPage"
                             :filtered-count="getTotalFilteredVulnerabilities(issue)"
                             :export-filter="exportFilter"
-                            :allow-suppress="!isPartialResults"
                             @page-change="(page) => handlePageChange(issue, page)"
                             @view-details="viewVulnerabilityDetails"
                             @view-code="viewVulnerabilityCode"
@@ -256,7 +231,6 @@
                       :index="fpIndex"
                       :isDark="isDark"
                       :appName="currentApplication"
-                      :allow-suppress="!isPartialResults"
                       @view-details="viewVulnerabilityDetails"
                       @view-code="viewVulnerabilityCode"
                       @view-split-view="viewSplitView"
@@ -359,14 +333,6 @@ const applicationResults = ref(null);
 const loading = ref(true);
 const error = ref(null);
 const isLoadingVulnerabilities = ref(false);
-const isPartialResults = computed(() => applicationResults.value?.partial === true);
-
-// Per-view toggle: request the backend to reshape results_partial.json when no completed
-// scan exists yet, so findings can be researched while the full scan re-runs.
-const showPartial = ref(false);
-watch(showPartial, () => {
-  if (currentApplication.value) fetchResults();
-});
 const itemsPerPage = ref(10);
 const itemsPerPageOptions = [10, 25, 50, 100];
 const exportFilter = ref('All');
@@ -840,7 +806,7 @@ const fetchResults = async () => {
       return;
     }
 
-    const apiUrl = `${import.meta.env.VITE_APP_API_URL || ''}/engine/scan/results/${currentApplication.value}${showPartial.value ? '?partial=true' : ''}`;
+    const apiUrl = `${import.meta.env.VITE_APP_API_URL || ''}/engine/scan/results/${currentApplication.value}`;
     const response = await axios.get(apiUrl);
 
     if (!response.data) throw new Error('No data received from server');
@@ -962,12 +928,6 @@ watch(currentApplication, async (newValue, oldValue) => {
     issueCache.clear();
     componentStatusCache.value = {};
     await fetchResults();
-  }
-});
-
-watch(isPartialResults, (val) => {
-  if (val && activeTab.value !== 'findings') {
-    activeTab.value = 'findings';
   }
 });
 

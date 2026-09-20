@@ -44,11 +44,3 @@ logger = logging.getLogger("project.api.engine")
 engine_namespace = Namespace("engine", description="Leviathan engine Operations")
 engine_service = EngineService()
 console = Console()
-
-
-def _partial_results_enabled() -> bool:
-    try:
-        settings = engine_service.get_settings() or {}
-        return bool(settings.get('partialResultsEnabled'))
-    except Exception:
-        return False

@@ -1,0 +1,118 @@
+{
+  "Intent-to-WebView": {
+    "enable": true,
+    "SliceMode": true,
+    "traceDepth": 6,
+    "PreciseTaint": true,
+    "PrimTypeAsTaint": true,
+    "desc": {
+      "name": "Intent-to-WebView",
+      "category": "WebViewRedirect",
+      "detail": " ",
+      "wiki": "https://cwe.mitre.org/data/definitions/601.html",
+      "possibility": "4",
+      "model": "high"
+    },
+    "entry": {
+      "ExportedCompos": true
+    },
+    "source": {
+      "Return": [
+        "<android.content.Intent: android.net.Uri getData()>",
+        "<android.content.Intent: java.lang.String getDataString()>",
+        "<android.content.Intent: java.lang.String getStringExtra(java.lang.String)>",
+        "<android.net.Uri: java.lang.String getQueryParameter(java.lang.String)>"
+      ]
+    },
+    "sink": {
+      "<android.app.Activity: void startActivity(android.content.Intent)>": {
+        "TaintCheck": [
+          "p0"
+        ]
+      },
+      "<android.content.Context: void startActivity(android.content.Intent)>": {
+        "TaintCheck": [
+          "p0"
+        ]
+      }
+    },
+    "sanitizer": {
+      "httpsOnly": {
+        "<android.webkit.URLUtil: boolean isHttpsUrl(java.lang.String)>": {
+          "TaintCheck": [
+            "p0"
+          ]
+        }
+      },
+      "hostAllowlist": {
+        "<android.net.Uri: java.lang.String getHost()>": {
+          "TaintCheck": [
+            "@this"
+          ]
+        },
+        "<java.lang.String: boolean equals(java.lang.Object)>": {
+          "TaintCheck": [
+            "@this"
+          ],
+          "p0": [
+            "wallet.example.com"
+          ]
+        }
+      }
+    },
+    "TaintTweak": {
+      "MethodSignature": {
+        "<android.content.Intent: void putExtra(java.lang.String,java.lang.String)>": {
+          "p1->@this": {
+            "I": [
+              "p1"
+            ],
+            "O": [
+              "@this"
+            ]
+          }
+        },
+        "<android.net.Uri: android.net.Uri parse(java.lang.String)>": {
+          "p0->ret": {
+            "I": [
+              "p0"
+            ],
+            "O": [
+              "ret"
+            ]
+          }
+        },
+        "<android.content.Intent: void <init>(java.lang.String,android.net.Uri)>": {
+          "p1->@this": {
+            "I": [
+              "p1"
+            ],
+            "O": [
+              "@this"
+            ]
+          }
+        },
+        "<android.content.Intent: android.content.Intent setData(android.net.Uri)>": {
+          "p0->@this": {
+            "I": [
+              "p0"
+            ],
+            "O": [
+              "@this"
+            ]
+          }
+        },
+        "<android.content.Intent: android.content.Intent setDataAndType(android.net.Uri,java.lang.String)>": {
+          "p0->@this": {
+            "I": [
+              "p0"
+            ],
+            "O": [
+              "@this"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

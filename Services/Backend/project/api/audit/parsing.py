@@ -1,4 +1,6 @@
 """Parsing / analysis helpers for the audit endpoints."""
+from functools import lru_cache
+
 from project.api.audit._shared import *  # noqa: F401,F403  (re-export shared surface)
 from project.api.audit.artifacts import (
     ArtifactError, ArtifactConflict, artifact_path, apk_identity, unique_record,
@@ -128,6 +130,33 @@ def get_apk_package_name(file_path: str) -> Optional[str]:
         return None
 
 
+def _apk_file_fingerprint(file_path):
+    file_stat = os.stat(file_path)
+    return (file_stat.st_dev, file_stat.st_ino, file_stat.st_size,
+            file_stat.st_mtime_ns, file_stat.st_ctime_ns)
+
+
+@lru_cache(maxsize=256)
+def _cached_apk_identity(file_path, fingerprint):
+    """Cache immutable metadata only, never APK instances or database rows."""
+    identity = apk_identity(APK(file_path))
+    if _apk_file_fingerprint(file_path) != fingerprint:
+        # Exceptions are not cached, so a concurrent file update can be retried.
+        raise ArtifactError('Unable to read APK identity')
+    return identity
+
+
+def _read_apk_identity(file_path):
+    # Include file identity and timestamps so replacement and in-place changes
+    # invalidate cached metadata, even when a filename is reused.
+    file_path = os.path.normcase(os.path.abspath(file_path))
+    fingerprint = _apk_file_fingerprint(file_path)
+    identity = _cached_apk_identity(file_path, fingerprint)
+    if _apk_file_fingerprint(file_path) != fingerprint:
+        raise ArtifactError('Unable to read APK identity')
+    return identity
+
+
 def find_android_info(identifier: str, skip_apk_analysis: bool = False) -> Optional[AndroidInfo]:
     """Resolve an uploaded APK by package AND version, without fuzzy fallback.
 
@@ -141,7 +170,7 @@ def find_android_info(identifier: str, skip_apk_analysis: bool = False) -> Optio
         file_path = artifact_path(UPLOAD_FOLDER, filename)
         if os.path.isfile(file_path):
             try:
-                package, version = apk_identity(APK(file_path))
+                package, version = _read_apk_identity(file_path)
             except ArtifactError:
                 raise
             except Exception as exc:

@@ -53,10 +53,6 @@
                   <v-icon class="mr-2">mdi-file-cog</v-icon>
                   EngineConfig.json5
                 </v-tab>
-                <v-tab v-if="chainReconEnabled" :value="'permissions'" @click="loadPermissionsMap">
-                  <v-icon class="mr-2">mdi-key-chain</v-icon>
-                  Chain Recon
-                </v-tab>
               </v-tabs>
             </v-col>
 
@@ -343,17 +339,6 @@
                           </v-col>
                           <v-col cols="12" sm="6" md="4">
                             <v-switch
-                              v-model="localSettings.partialResultsEnabled"
-                              label="Partial Results Mode"
-                              :disabled="saving"
-                              :dark="isDark"
-                              color="warning"
-                              hint="Show partial findings if results.json is missing (accessibility may be unknown)"
-                              persistent-hint
-                            ></v-switch>
-                          </v-col>
-                          <v-col cols="12" sm="6" md="4">
-                            <v-switch
                               v-model="localSettings.javaSourceHighlighting"
                               label="Java Source Highlighting"
                               :disabled="saving || !localSettings.javaSource"
@@ -431,33 +416,12 @@
                           </v-col>
                           <v-col cols="12" sm="6" md="4">
                             <v-switch
-                              v-model="localSettings.selectivePrimeTaint"
-                              label="Selective Prime Taint"
-                              :disabled="saving"
-                              :dark="isDark"
-                              color="primary"
-                              hint="Track taint through object-to-String getters (e.g. uri.getLastPathSegment()); still blocks String-to-String soup. Finds more (e.g. ContentProvider path traversal) with no losses. Off = upstream behavior."
-                              persistent-hint
-                            ></v-switch>
-                          </v-col>
-                          <v-col cols="12" sm="6" md="4">
-                            <v-switch
                               v-model="localSettings.checkPermission"
                               label="Check Permissions"
                               :disabled="saving"
                               :dark="isDark"
                               color="primary"
                               hint="Check exported component permissions during analysis"
-                              persistent-hint
-                            ></v-switch>
-                          </v-col>
-                          <v-col cols="12" sm="6" md="4">
-                            <v-switch
-                              v-model="chainReconEnabled"
-                              label="Chain Recon"
-                              :dark="isDark"
-                              color="warning"
-                              hint="Cross-app permission map for chaining bugs across apps/OEMs/vendors that share a signature permission. Adds a 'Chain Recon' tab."
                               persistent-hint
                             ></v-switch>
                           </v-col>
@@ -818,74 +782,6 @@
                     </v-col>
                   </v-row>
                 </v-window-item>
-
-                <!-- Chain Recon: cross-app permission map -->
-                <v-window-item v-if="chainReconEnabled" :value="'permissions'">
-                  <v-card variant="tonal" class="mb-4">
-                    <v-card-text>
-                      <div class="d-flex align-center justify-space-between flex-wrap gap-2">
-                        <div>
-                          <div class="text-h6">Cross-app permission map</div>
-                          <div class="text-caption opacity-80">
-                            Which scanned apps declare / require each permission — for chaining bugs across apps that share a (signature) permission.
-                            <strong>{{ permMap.length }}</strong> permissions across <strong>{{ permAppCount }}</strong> scanned apps.
-                          </div>
-                        </div>
-                        <div class="d-flex align-center gap-2">
-                          <v-chip size="small" color="warning" variant="tonal">{{ permChainableCount }} chain candidates</v-chip>
-                          <v-switch v-model="permChainableOnly" label="Chainable only" density="compact" hide-details color="warning" />
-                          <v-btn size="small" variant="text" :loading="permLoading" @click="loadPermissionsMap(true)">
-                            <v-icon start>mdi-refresh</v-icon>Refresh
-                          </v-btn>
-                        </div>
-                      </div>
-                    </v-card-text>
-                  </v-card>
-
-                  <v-alert v-if="permError" type="error" variant="tonal" class="mb-4">{{ permError }}</v-alert>
-
-                  <v-table density="comfortable" class="perm-table" v-if="filteredPermMap.length">
-                    <thead>
-                      <tr>
-                        <th>Permission</th>
-                        <th>Protection level</th>
-                        <th>3rd-party holdable</th>
-                        <th>Declared by</th>
-                        <th>Required by (components)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="p in filteredPermMap" :key="p.name" :class="{ 'chain-row': p.chainable }">
-                        <td>
-                          <v-icon v-if="p.chainable" size="x-small" color="warning" class="mr-1">mdi-link-variant</v-icon>
-                          <code class="perm-name">{{ p.name }}</code>
-                        </td>
-                        <td>
-                          <v-chip size="x-small" :color="protColor(p.protection_level)" variant="tonal">{{ p.protection_level }}</v-chip>
-                        </td>
-                        <td>
-                          <v-icon size="small" :color="p.third_party_holdable ? 'error' : 'success'">
-                            {{ p.third_party_holdable ? 'mdi-lock-open-variant' : 'mdi-shield-check' }}
-                          </v-icon>
-                        </td>
-                        <td>
-                          <div v-for="a in p.declared_by" :key="a" class="text-caption">{{ shortPkg(a) }}</div>
-                          <span v-if="!p.declared_by.length" class="text-caption opacity-60">— (external / framework)</span>
-                        </td>
-                        <td>
-                          <div v-for="r in p.required_by" :key="r.app" class="text-caption">
-                            {{ shortPkg(r.app) }} <span class="opacity-70">×{{ r.components }}</span>
-                            <v-chip v-if="r.accessible" size="x-small" color="error" variant="tonal" class="ml-1">{{ r.accessible }} exported</v-chip>
-                          </div>
-                          <span v-if="!p.required_by.length" class="text-caption opacity-60">—</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </v-table>
-                  <div v-else-if="!permLoading" class="text-center pa-6 opacity-70">
-                    {{ permChainableOnly ? 'No cross-app chain candidates among scanned apps yet — scan more apps from the same vendor.' : 'No permission data. Scan some apps first.' }}
-                  </div>
-                </v-window-item>
               </v-window>
             </v-col>
           </v-row>
@@ -978,9 +874,7 @@ const DEFAULT_SETTINGS = {
   wholeProcessMode: false,
   skipAnalyzeNonRelatedMethods: false,
   skipPointerPropagationForLibraryMethod: true,
-  selectivePrimeTaint: false, // engine-vr: track taint through object->String getters; off = upstream behavior
-  checkPermission: false, // Check exported component permissions during analysis
-  partialResultsEnabled: false // Allow partial results when results.json is missing
+  checkPermission: false // Check exported component permissions during analysis
 };
 
 export default {
@@ -1021,53 +915,6 @@ export default {
     const logLevelOptions = ref(LOG_LEVEL_OPTIONS);
 
     const activeTab = ref('settings');
-
-    // Chain Recon — cross-app permission map (feature toggle, frontend-persisted)
-    const chainReconEnabled = ref(localStorage.getItem('chainReconEnabled') === 'true');
-    watch(chainReconEnabled, (on) => {
-      try { localStorage.setItem('chainReconEnabled', on ? 'true' : 'false'); } catch (e) { /* ignore */ }
-      if (!on && activeTab.value === 'permissions') activeTab.value = 'settings';
-    });
-
-    const permMap = ref([]);
-    const permAppCount = ref(0);
-    const permLoading = ref(false);
-    const permError = ref(null);
-    const permChainableOnly = ref(false);
-    const permLoaded = ref(false);
-
-    const permChainableCount = computed(() => permMap.value.filter(p => p.chainable).length);
-    const filteredPermMap = computed(() =>
-      permChainableOnly.value ? permMap.value.filter(p => p.chainable) : permMap.value
-    );
-
-    const shortPkg = (pkg) => {
-      if (!pkg) return pkg;
-      const parts = pkg.split('.');
-      return parts.length > 2 ? parts.slice(-2).join('.') : pkg;
-    };
-    const protColor = (lvl) => {
-      if (!lvl) return 'grey';
-      const l = String(lvl).toLowerCase();
-      if (l.includes('signature') || l.includes('system') || l.includes('privileged') || l.includes('internal')) return 'success';
-      if (l.includes('dangerous')) return 'warning';
-      return 'grey';
-    };
-    const loadPermissionsMap = async (force = false) => {
-      if (permLoaded.value && !force) return;
-      permLoading.value = true;
-      permError.value = null;
-      try {
-        const { data } = await api.get('/database/permissions-map');
-        permMap.value = data.permissions || [];
-        permAppCount.value = data.app_count || 0;
-        permLoaded.value = true;
-      } catch (e) {
-        permError.value = e?.response?.data?.message || e.message || 'Failed to load permission map';
-      } finally {
-        permLoading.value = false;
-      }
-    };
 
     const engineConfig = ref({
       loading: false,
@@ -1382,9 +1229,7 @@ export default {
           wholeProcessMode: localSettings.value.wholeProcessMode !== undefined ? localSettings.value.wholeProcessMode : false,
           skipAnalyzeNonRelatedMethods: localSettings.value.skipAnalyzeNonRelatedMethods !== undefined ? localSettings.value.skipAnalyzeNonRelatedMethods : false,
           skipPointerPropagationForLibraryMethod: localSettings.value.skipPointerPropagationForLibraryMethod !== undefined ? localSettings.value.skipPointerPropagationForLibraryMethod : true,
-          selectivePrimeTaint: localSettings.value.selectivePrimeTaint !== undefined ? localSettings.value.selectivePrimeTaint : false,
-          checkPermission: localSettings.value.checkPermission !== undefined ? localSettings.value.checkPermission : false,
-          partialResultsEnabled: localSettings.value.partialResultsEnabled === true
+          checkPermission: localSettings.value.checkPermission !== undefined ? localSettings.value.checkPermission : false
         };
 
         // Remove keys with empty/null/undefined values completely
@@ -1432,7 +1277,6 @@ export default {
           wholeProcessMode: localSettings.value.wholeProcessMode !== undefined ? localSettings.value.wholeProcessMode : false,
           skipAnalyzeNonRelatedMethods: localSettings.value.skipAnalyzeNonRelatedMethods !== undefined ? localSettings.value.skipAnalyzeNonRelatedMethods : false,
           skipPointerPropagationForLibraryMethod: localSettings.value.skipPointerPropagationForLibraryMethod !== undefined ? localSettings.value.skipPointerPropagationForLibraryMethod : true,
-          selectivePrimeTaint: localSettings.value.selectivePrimeTaint !== undefined ? localSettings.value.selectivePrimeTaint : false,
           checkPermission: localSettings.value.checkPermission !== undefined ? localSettings.value.checkPermission : false
         };
 
@@ -1695,19 +1539,6 @@ export default {
       activeTab,
       engineConfig,
 
-      // Chain Recon — cross-app permission map
-      chainReconEnabled,
-      permMap,
-      permAppCount,
-      permLoading,
-      permError,
-      permChainableOnly,
-      permChainableCount,
-      filteredPermMap,
-      loadPermissionsMap,
-      shortPkg,
-      protColor,
-
       // Computed
       selectedRulesString,
       icon,
@@ -1831,18 +1662,5 @@ export default {
 
 .engine-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-
-.perm-table :deep(td),
-.perm-table :deep(th) {
-  vertical-align: top;
-}
-.perm-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  word-break: break-all;
-}
-.perm-table :deep(tr.chain-row) {
-  background: rgba(255, 167, 38, 0.10);
 }
 </style>

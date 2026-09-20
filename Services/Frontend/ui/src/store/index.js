@@ -4,6 +4,7 @@ import fridaModule from "@/store/modules/fridaModule";
 import { resolveJavaDefinition } from '@/utils/javaDefinitionResolver';
 import { authApi } from '@/services';
 import { clearAuthSession, getAuthSessionVersion } from '@/utils/http';
+import { snapshotDashboardItems } from '@/utils/dashboardItems';
 
 // Seed axios's default Authorization header from any persisted token. The
 // per-request interceptor in src/utils/http.js is the source of truth, but
@@ -36,6 +37,9 @@ export default createStore({
     decompiledProviders: {},
     currentApplication: null,
     applicationResults: {},
+    // Keep the last visible app list for immediate display after navigation.
+    dashboardItems: [],
+    dashboardInvalidation: null,
     currentCode: '',
     currentFilename: '',
     currentComponentName: '',
@@ -57,6 +61,20 @@ export default createStore({
     frida: fridaModule
   },
   mutations: {
+    SET_DASHBOARD_ITEMS(state, { items, sessionVersion }) {
+      if (sessionVersion !== getAuthSessionVersion()) return;
+      state.dashboardItems = snapshotDashboardItems(items);
+    },
+
+    INVALIDATE_DASHBOARD_ITEM(state, { filename, remove = false }) {
+      state.dashboardItems = state.dashboardItems.filter(item => item.application !== filename);
+      delete state.scanResults[filename];
+      try {
+        localStorage.setItem('appshark_scan_results', JSON.stringify(state.scanResults));
+      } catch { /* Cache persistence must not fail a successful upload or deletion. */ }
+      state.dashboardInvalidation = { filename, remove };
+    },
+
     SET_CODE_VIEWER_DATA(state, { code, filename, componentName }) {
       state.codeViewerData = { code, filename, componentName };
     },
@@ -105,6 +123,8 @@ export default createStore({
       state.user = null;
       state.accessToken = '';
       state.refreshToken = '';
+      state.dashboardItems = [];
+      state.dashboardInvalidation = null;
       clearAuthSession();
     },
     setDecompiledService(state, { filename, serviceName, exists }) {

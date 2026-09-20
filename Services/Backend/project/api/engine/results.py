@@ -1,7 +1,7 @@
 """Scan result + vulnerability read/CRUD endpoints."""
 
 from project.api.engine._shared import (
-    json, request, jsonify, Resource, logger, joinedload, db, engine_namespace, engine_service, _partial_results_enabled, save_scan_results, find_android_info, parse_appshark_detail, AndroidInfo, AppsharkScan, AppsharkSecurityIssue, AppsharkVulnerability, ScanTask,
+    json, request, jsonify, Resource, logger, joinedload, db, engine_namespace, engine_service, save_scan_results, find_android_info, parse_appshark_detail, AndroidInfo, AppsharkScan, AppsharkSecurityIssue, AppsharkVulnerability, ScanTask,
 )
 from sqlalchemy.orm import selectinload
 
@@ -51,9 +51,6 @@ class EngineScanResults(Resource):
         try:
             # Remove .apk extension if present
             app_name = app_identifier.replace('.apk', '')
-            # Per-view toggle (?partial=true) OR the persisted setting. The toggle lets
-            # researchers peek at an incomplete scan's findings while the full run re-executes.
-            partial_enabled = _partial_results_enabled() or request.args.get('partial') == 'true'
 
             # Try to find the AndroidInfo record - multiple strategies
             android_app = AndroidInfo.query.filter(
@@ -104,7 +101,7 @@ class EngineScanResults(Resource):
                 # Fallback: read results.json directly from the engine output folder.
                 # This supports flows where the UI keys by uploaded filename (e.g. app-debug.apk)
                 # but the DB stores package/app metadata instead.
-                parsed = engine_service.parse_scan_results(app_name, allow_partial=partial_enabled)
+                parsed = engine_service.parse_scan_results(app_name)
                 if parsed:
                     return jsonify(parsed)
                 return {"error": f"App not found: {app_identifier}"}, 404
@@ -117,10 +114,8 @@ class EngineScanResults(Resource):
             if not latest_scan:
                 # results.json may exist on disk but was never saved (e.g. backend crashed post-scan)
                 app_name_clean = app_identifier.replace('.apk', '')
-                parsed = engine_service.parse_scan_results(app_name_clean, allow_partial=partial_enabled)
+                parsed = engine_service.parse_scan_results(app_name_clean)
                 if parsed:
-                    if parsed.get('partial'):
-                        return jsonify(parsed)
                     logger.info(f"results.json found on disk for {app_identifier}, saving to DB")
                     from project.api.tasks.tasks import save_scan_results
                     # Find the most recent FINISHED ScanTask for this file to link the guid
@@ -209,9 +204,6 @@ class EngineScanHighLevelResults(Resource):
         try:
             # Remove .apk extension if present
             app_name = app_identifier.replace('.apk', '')
-            # Per-view toggle (?partial=true) OR the persisted setting. The toggle lets
-            # researchers peek at an incomplete scan's findings while the full run re-executes.
-            partial_enabled = _partial_results_enabled() or request.args.get('partial') == 'true'
 
             android_app = AndroidInfo.query.filter(
                 (AndroidInfo.app_name == app_name) |
@@ -249,7 +241,7 @@ class EngineScanHighLevelResults(Resource):
                     android_app = None
 
             if not android_app:
-                parsed = engine_service.parse_scan_results(app_name, allow_partial=partial_enabled)
+                parsed = engine_service.parse_scan_results(app_name)
                 if not parsed:
                     return {"error": f"App not found: {app_identifier}"}, 404
 
@@ -276,8 +268,7 @@ class EngineScanHighLevelResults(Resource):
                     'app_info': parsed.get('app_info', {}),
                     'manifest_risks': parsed.get('manifest_risks', {}),
                     'scan_date': None,
-                    'security_issues_summary': summary,
-                    'partial': bool(parsed.get('partial'))
+                    'security_issues_summary': summary
                 }
                 return jsonify(high_level_results)
 
@@ -286,31 +277,8 @@ class EngineScanHighLevelResults(Resource):
 
             if not latest_scan:
                 app_name_clean = app_identifier.replace('.apk', '')
-                parsed = engine_service.parse_scan_results(app_name_clean, allow_partial=partial_enabled)
+                parsed = engine_service.parse_scan_results(app_name_clean)
                 if parsed:
-                    if parsed.get('partial'):
-                        summary = {}
-                        for issue in parsed.get('security_issues', []) or []:
-                            category = issue.get('category') or 'Unknown'
-                            summary.setdefault(category, {'count': 0, 'issues': []})
-                            summary[category]['count'] += 1
-                            entry_method = None
-                            vulns = issue.get('vulnerabilities') or []
-                            if vulns:
-                                entry_method = (vulns[0].get('details') or {}).get('entryMethod')
-                            summary[category]['issues'].append({
-                                'id': None,
-                                'name': issue.get('name'),
-                                'possibility': issue.get('possibility'),
-                                'entry_method': entry_method,
-                            })
-                        return jsonify({
-                            'app_info': parsed.get('app_info', {}),
-                            'manifest_risks': parsed.get('manifest_risks', {}),
-                            'scan_date': None,
-                            'security_issues_summary': summary,
-                            'partial': True
-                        })
                     logger.info(f"results.json found on disk for {app_identifier}, saving to DB")
                     from project.api.tasks.tasks import save_scan_results
                     scan_task = ScanTask.query.filter_by(filename=android_app.app_name + '.apk').order_by(ScanTask.id.desc()).first() \

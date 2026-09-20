@@ -7,7 +7,7 @@
     transition="dialog-bottom-transition"
   >
     <v-card class="split-view-card">
-      <v-toolbar dark color="primary">
+      <v-toolbar class="split-toolbar" dark color="primary">
         <v-btn icon dark @click="closeDialog">
           <v-icon>mdi-close</v-icon>
         </v-btn>
@@ -15,7 +15,7 @@
         <v-spacer />
         <v-btn
           variant="text"
-          class="text-none"
+          class="text-none split-reset"
           title="Reset split (double-click the divider also works)"
           @click="resetSplit"
         >
@@ -25,11 +25,11 @@
 
       <div
         ref="splitContainerEl"
-        class="fill-height split-container"
+        class="split-container"
         :class="{ 'is-dragging': isDragging }"
       >
         <div class="split-pane" :style="leftPaneStyle">
-          <v-card flat tile class="fill-height overflow-card">
+          <v-card flat tile class="overflow-card">
             <v-card-title class="pane-title">
               Code: {{ currentFilename }}
               <span class="pane-title-sep">—</span>
@@ -57,13 +57,13 @@
         />
 
         <div class="split-pane split-pane-right">
-          <v-card flat tile class="fill-height overflow-card">
+          <v-card flat tile class="overflow-card">
             <v-card-title class="pane-title">
               Vulnerability Details
               <span class="pane-title-hint">(drag the divider to resize)</span>
             </v-card-title>
-            <v-card-text class="overflow-container">
-              <SafeReportHtml :content="vulnerabilityDetailsHtml" />
+            <v-card-text class="overflow-container report-container pa-0">
+              <SafeReportHtml class="split-report" :content="vulnerabilityDetailsHtml" />
             </v-card-text>
           </v-card>
         </div>
@@ -269,19 +269,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.split-view-card {
+.v-card.split-view-card {
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
-.fill-height {
-  height: calc(100% - 64px); /* Subtracting toolbar height */
+.split-toolbar {
+  flex: 0 0 auto;
 }
 
 .split-container {
   display: flex;
-  height: 100%;
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   width: 100%;
   overflow: hidden;
   background: rgb(var(--v-theme-surface));
@@ -292,16 +296,19 @@ onBeforeUnmount(() => {
 }
 
 .split-pane {
+  flex: 0 0 auto;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
   min-width: 0; /* critical for flex overflow behavior */
 }
 
 .split-pane-right {
-  flex: 1;
+  flex: 1 1 0;
 }
 
 .pane-title {
+  flex: 0 0 auto;
   font-weight: 600;
   line-height: 1.2;
 }
@@ -359,12 +366,31 @@ onBeforeUnmount(() => {
 .overflow-card {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .overflow-container {
-  flex-grow: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: auto;
+}
+
+.report-container {
+  display: flex;
+  overflow: hidden;
+}
+
+.report-container .split-report {
+  display: block;
+  flex: 1 1 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
 }
 
 .vuln-content {
@@ -380,8 +406,30 @@ onBeforeUnmount(() => {
 }
 
 /* Ensure the CodeViewer takes up the full height of its container */
-:deep(.code-viewer) {
+.overflow-container :deep(.code-viewer) {
   height: 100%;
+}
+
+@media (max-width: 760px) {
+  .split-container {
+    flex-direction: column;
+  }
+
+  .split-pane {
+    flex: 1 1 0;
+    width: 100% !important;
+    height: auto;
+  }
+
+  .split-pane-right {
+    border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  }
+
+  .splitter,
+  .split-reset,
+  .pane-title-hint {
+    display: none;
+  }
 }
 
 /* Style scrollbars for webkit browsers */

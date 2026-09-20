@@ -46,7 +46,7 @@ class EngineRun(Resource):
         current_settings = cls.engine_service.get_settings() or {}
         safe_overrides = {
             key: value
-            for key, value in (request_overrides or {}).items()
+            for key, value in cls.engine_service.normalize_settings(request_overrides).items()
             if value is not None and key not in {'apkPath', 'out', 'outPath'}
         }
         current_settings.update(safe_overrides)
