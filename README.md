@@ -7,7 +7,7 @@
 
 # Leviathan: Mobile security analysis framework
 
-**Android & iOS** · **Docker Compose** · [**MIT License**](LICENSE)
+**Android & iOS** · **Docker Compose** 
 
 Static analysis, decompilation, and runtime instrumentation for Android and iOS applications through a web interface. Leviathan brings application metadata, source code, findings, and Frida sessions into one workspace.
 
