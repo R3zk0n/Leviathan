@@ -155,6 +155,4 @@ Leviathan uses Vue, Vuetify, Flask, Celery, Redis, PostgreSQL, and Docker. Its a
 - [Radare2](https://github.com/radareorg/radare2) and [r2ghidra](https://github.com/radareorg/r2ghidra).
 - [Frida](https://frida.re) and [TruffleHog](https://github.com/trufflesecurity/trufflehog).
 
-## License
 
-[MIT](LICENSE)
