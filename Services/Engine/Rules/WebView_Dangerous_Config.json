@@ -1,0 +1,19 @@
+{
+  "WebView_Dangerous_Config": {
+    "APIMode": true,
+    "desc": {
+      "name": "WebView_Dangerous_Config",
+      "category": "WebViewConfig",
+      "detail": "APIMode (call-site report, no taint). Flags WebView configurations that turn a loaded page into an app-compromise primitive: addJavascriptInterface (JS->Java bridge, RCE on pre-API17 or any @JavascriptInterface method), setAllowUniversalAccessFromFileURLs / setAllowFileAccessFromFileURLs (file:// pages read arbitrary local files and same-origin any origin), and setAllowContentAccess. Cross-reference with WebView_Tainted_Load: a tainted load INTO one of these WebViews is the exploitable chain.",
+      "wiki": "https://cwe.mitre.org/data/definitions/749.html",
+      "possibility": "3",
+      "model": "high"
+    },
+    "sink": {
+      "<android.webkit.WebView: * addJavascriptInterface(*)>": {},
+      "<android.webkit.WebSettings: * setAllowUniversalAccessFromFileURLs(*)>": {},
+      "<android.webkit.WebSettings: * setAllowFileAccessFromFileURLs(*)>": {},
+      "<android.webkit.WebSettings: * setJavaScriptCanOpenWindowsAutomatically(*)>": {}
+    }
+  }
+}
