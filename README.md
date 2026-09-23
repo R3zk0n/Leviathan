@@ -13,6 +13,9 @@ Static analysis, decompilation, and runtime instrumentation for Android and iOS 
 
 Android analysis uses AppShark and decompilation tools including JADX and Vineflower. iOS analysis provides Mach-O inspection, ARM disassembly, and per-function pseudocode. Frida supports runtime inspection on connected devices.
 
+
+![Example: Leviathan interface](Leviathan.png)
+
 ## Documentation
 
 - [Quick Start](#quick-start)
